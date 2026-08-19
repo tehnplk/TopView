@@ -7,6 +7,30 @@ function App(): React.JSX.Element {
   const [isAboutOpen, setIsAboutOpen] = useState(false)
   const [isImportOpen, setIsImportOpen] = useState(false)
   const [isBackingUp, setIsBackingUp] = useState(false)
+  const [selected43Archive, setSelected43Archive] = useState<string | null>(null)
+  const [selectedBackupFile, setSelectedBackupFile] = useState<string | null>(null)
+
+  const openImportDialog = (): void => {
+    setSelected43Archive(null)
+    setSelectedBackupFile(null)
+    setIsImportOpen(true)
+  }
+
+  const browse43FilesArchive = async (): Promise<void> => {
+    const selectedFile = await window.api?.browse43FilesArchive()
+
+    if (selectedFile) {
+      setSelected43Archive(selectedFile)
+    }
+  }
+
+  const browseBackupFile = async (): Promise<void> => {
+    const selectedFile = await window.api?.browseBackupFile()
+
+    if (selectedFile) {
+      setSelectedBackupFile(selectedFile)
+    }
+  }
 
   const handleBackup = async (): Promise<void> => {
     if (isBackingUp || !window.api) {
@@ -49,7 +73,7 @@ function App(): React.JSX.Element {
       <header className="app-header">
         <span className="brand-mark" aria-hidden="true">T</span>
         <nav className="app-nav" aria-label="เมนูหลัก">
-          <button type="button" onClick={() => setIsImportOpen(true)}>นำเข้า</button>
+          <button type="button" onClick={openImportDialog}>นำเข้า</button>
           <button type="button">จัดการชั้นข้อมูล</button>
           <button type="button" disabled={isBackingUp} onClick={() => void handleBackup()}>
             {isBackingUp ? 'กำลังสำรอง...' : 'สำรองข้อมูล'}
@@ -90,12 +114,31 @@ function App(): React.JSX.Element {
             </header>
 
             <div className="import-dialog-body">
-              <button type="button" className="import-option-button" autoFocus>
+              <button
+                type="button"
+                className="import-option-button"
+                autoFocus
+                onClick={() => void browse43FilesArchive()}
+              >
                 นำเข้า 43 แฟ้ม
               </button>
-              <button type="button" className="import-option-button">
+              {selected43Archive && (
+                <p className="import-selected-file" title={selected43Archive} aria-live="polite">
+                  {selected43Archive}
+                </p>
+              )}
+              <button
+                type="button"
+                className="import-option-button"
+                onClick={() => void browseBackupFile()}
+              >
                 นำเข้าข้อมูลสำรอง
               </button>
+              {selectedBackupFile && (
+                <p className="import-selected-file" title={selectedBackupFile} aria-live="polite">
+                  {selectedBackupFile}
+                </p>
+              )}
             </div>
           </section>
         </div>

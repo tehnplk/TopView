@@ -203,6 +203,16 @@ select {
   background: #0f6edc;
 }
 
+.import-selected-file {
+  margin: -4px 2px 2px;
+  overflow: hidden;
+  color: #596579;
+  font-size: 12px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .import-dialog button:focus-visible {
   outline: 2px solid #ffcf4a;
   outline-offset: 2px;

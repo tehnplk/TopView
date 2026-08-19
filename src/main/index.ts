@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, type OpenDialogOptions } from 'electron'
 import { join } from 'node:path'
 import {
   backupDatabase,
@@ -101,6 +101,32 @@ app.whenReady().then(() => {
 
       throw error
     }
+  })
+  ipcMain.handle('import:browse-43-files', async (event) => {
+    const parentWindow = BrowserWindow.fromWebContents(event.sender)
+    const options: OpenDialogOptions = {
+      title: 'เลือกไฟล์ ZIP ข้อมูล 43 แฟ้ม',
+      properties: ['openFile'],
+      filters: [{ name: 'ZIP Archive', extensions: ['zip'] }]
+    }
+    const result = parentWindow
+      ? await dialog.showOpenDialog(parentWindow, options)
+      : await dialog.showOpenDialog(options)
+
+    return result.canceled ? null : (result.filePaths[0] ?? null)
+  })
+  ipcMain.handle('import:browse-backup', async (event) => {
+    const parentWindow = BrowserWindow.fromWebContents(event.sender)
+    const options: OpenDialogOptions = {
+      title: 'เลือกไฟล์สำรอง TopView',
+      properties: ['openFile'],
+      filters: [{ name: 'TopView Backup (*.tar.gz)', extensions: ['gz'] }]
+    }
+    const result = parentWindow
+      ? await dialog.showOpenDialog(parentWindow, options)
+      : await dialog.showOpenDialog(options)
+
+    return result.canceled ? null : (result.filePaths[0] ?? null)
   })
   ipcMain.handle('gistda-wms:get-config', () => {
     return getGistdaWmsConfig()

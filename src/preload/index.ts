@@ -24,6 +24,9 @@ const api = {
   deleteGisFeature: (id: number): Promise<DeleteGisFeatureResult> =>
     ipcRenderer.invoke('gis-data:delete', id),
   backupDatabase: (): Promise<BackupDatabaseResult> => ipcRenderer.invoke('database:backup'),
+  browse43FilesArchive: (): Promise<string | null> =>
+    ipcRenderer.invoke('import:browse-43-files'),
+  browseBackupFile: (): Promise<string | null> => ipcRenderer.invoke('import:browse-backup'),
   getGistdaWmsConfig: (): Promise<GistdaWmsConfig> => ipcRenderer.invoke('gistda-wms:get-config')
 }
 
