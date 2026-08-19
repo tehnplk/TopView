@@ -29,12 +29,10 @@ function App(): React.JSX.Element {
     <main className="app-shell">
       <header className="app-header">
         <span className="brand-mark" aria-hidden="true">T</span>
-        <h1>TopView</h1>
         <nav className="app-nav" aria-label="เมนูหลัก">
           <button type="button">นำเข้า</button>
-          <span className="app-nav-divider" aria-hidden="true">|</span>
+          <button type="button">จัดการชั้นข้อมูล</button>
           <button type="button">ตั้งค่า</button>
-          <span className="app-nav-divider" aria-hidden="true">|</span>
           <button type="button" onClick={() => setIsAboutOpen(true)}>เกี่ยวกับ</button>
         </nav>
       </header>

@@ -34,14 +34,6 @@ select {
   min-height: 100vh;
   display: grid;
   grid-template-rows: env(titlebar-area-height, 35px) 1fr;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.app-shell input,
-.app-shell textarea {
-  user-select: text;
-  -webkit-user-select: text;
 }
 
 .app-header {
@@ -82,15 +74,6 @@ select {
   pointer-events: none;
 }
 
-.app-header h1 {
-  position: relative;
-  z-index: 1;
-  margin: 0;
-  font-size: 15px;
-  font-weight: 750;
-  letter-spacing: 0.01em;
-}
-
 .brand-mark {
   position: relative;
   z-index: 1;
@@ -98,8 +81,8 @@ select {
   width: 26px;
   height: 26px;
   place-items: center;
-  color: #1646a3;
-  background: #ffdd73;
+  color: #ffffff;
+  background: #009b4e;
   border: 1px solid rgb(255 255 255 / 55%);
   border-radius: 7px;
   box-shadow: 0 3px 8px rgb(25 64 145 / 24%);
@@ -111,7 +94,6 @@ select {
   position: relative;
   z-index: 1;
   display: flex;
-  margin-left: auto;
   align-items: center;
   gap: 4px;
 }
@@ -124,8 +106,9 @@ select {
   border: 0;
   border-radius: 7px;
   cursor: pointer;
+  font-family: "Segoe UI", sans-serif;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 400;
   app-region: no-drag;
   -webkit-app-region: no-drag;
 }
@@ -137,11 +120,6 @@ select {
 .app-nav button:focus-visible {
   outline: 2px solid #ffdf77;
   outline-offset: 1px;
-}
-
-.app-nav-divider {
-  color: rgb(255 255 255 / 48%);
-  font-size: 13px;
 }
 
 .about-overlay {

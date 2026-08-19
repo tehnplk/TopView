@@ -272,7 +272,7 @@ function Map(): React.JSX.Element {
     })
 
     return () => window.cancelAnimationFrame(frameId)
-  }, [selectedFeature, infoFields, isEditingInfo, isInfoSaving, infoError])
+  }, [selectedFeature?.id, infoFields.length, isEditingInfo, isInfoSaving, infoError])
 
   useEffect(() => {
     const container = containerRef.current
