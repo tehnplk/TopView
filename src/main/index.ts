@@ -1,6 +1,7 @@
-import { app, BrowserWindow, ipcMain, Menu } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron'
 import { join } from 'node:path'
 import {
+  backupDatabase,
   deleteGisFeature,
   getDatabase,
   listGisGeometry,
@@ -61,6 +62,45 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('gis-data:delete', (_event, id: unknown) => {
     return deleteGisFeature(id)
+  })
+  ipcMain.handle('database:backup', async (event) => {
+    const parentWindow = BrowserWindow.fromWebContents(event.sender)
+
+    try {
+      const result = await backupDatabase()
+      const options = {
+        type: 'info' as const,
+        title: 'สำรองข้อมูล',
+        message: 'สำรองฐานข้อมูลเรียบร้อยแล้ว',
+        detail: result.path,
+        buttons: ['ตกลง']
+      }
+
+      if (parentWindow) {
+        await dialog.showMessageBox(parentWindow, options)
+      } else {
+        await dialog.showMessageBox(options)
+      }
+
+      return result
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ'
+      const options = {
+        type: 'error' as const,
+        title: 'สำรองข้อมูล',
+        message: 'ไม่สามารถสำรองฐานข้อมูลได้',
+        detail,
+        buttons: ['ตกลง']
+      }
+
+      if (parentWindow) {
+        await dialog.showMessageBox(parentWindow, options)
+      } else {
+        await dialog.showMessageBox(options)
+      }
+
+      throw error
+    }
   })
   ipcMain.handle('gistda-wms:get-config', () => {
     return getGistdaWmsConfig()

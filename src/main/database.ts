@@ -1,8 +1,10 @@
 import { PGlite } from '@electric-sql/pglite'
 import { postgis } from '@electric-sql/pglite-postgis'
 import { app } from 'electron'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
+  BackupDatabaseResult,
   DeleteGisFeatureResult,
   GisDataRecord,
   GisFeatureInfo,
@@ -85,6 +87,20 @@ function parseGisFeatureInfo(value: unknown): GisFeatureInfo {
   }
 
   return {}
+}
+
+function formatBangkokTimestamp(date: Date): string {
+  const bangkokDate = new Date(date.getTime() + 7 * 60 * 60 * 1000)
+  const pad = (value: number): string => value.toString().padStart(2, '0')
+
+  return [
+    bangkokDate.getUTCFullYear(),
+    pad(bangkokDate.getUTCMonth() + 1),
+    pad(bangkokDate.getUTCDate()),
+    pad(bangkokDate.getUTCHours()),
+    pad(bangkokDate.getUTCMinutes()),
+    pad(bangkokDate.getUTCSeconds())
+  ].join('')
 }
 
 export async function getDatabase(): Promise<PGlite> {
@@ -219,6 +235,25 @@ export async function deleteGisFeature(idValue: unknown): Promise<DeleteGisFeatu
   }
 
   return { id: deletedRow.id }
+}
+
+export async function backupDatabase(): Promise<BackupDatabaseResult> {
+  const database = await getDatabase()
+  await database.syncToFs()
+
+  const dump = await database.dumpDataDir('gzip')
+  const backupData = Buffer.from(await dump.arrayBuffer())
+  const backupDirectory = join(app.getPath('home'), '.topview')
+  const timestamp = formatBangkokTimestamp(new Date())
+  const backupPath = join(backupDirectory, `topview_${timestamp}.tar.gz`)
+
+  await mkdir(backupDirectory, { recursive: true })
+  await writeFile(backupPath, backupData, { flag: 'wx' })
+
+  return {
+    path: backupPath,
+    size: backupData.byteLength
+  }
 }
 
 export async function getConfigValue(name: string): Promise<string | null> {

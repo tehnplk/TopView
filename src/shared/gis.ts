@@ -25,6 +25,11 @@ export type DeleteGisFeatureResult = {
   id: number
 }
 
+export type BackupDatabaseResult = {
+  path: string
+  size: number
+}
+
 export type GisDataRecord = {
   id: number
   spatial: GisGeometry

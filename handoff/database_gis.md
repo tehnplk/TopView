@@ -21,6 +21,8 @@ await database.waitReady
 - ฐานข้อมูลและตารางจะถูกสร้างอัตโนมัติเมื่อเปิดแอป
 - PGlite ไม่ได้เปิด PostgreSQL network server จึงใช้ `psql` เชื่อมผ่าน `localhost` ไม่ได้
 
+เมนู `สำรองข้อมูล` เรียก `database.dumpDataDir('gzip')` และเขียน snapshot เป็นไฟล์ `topview_yyyymmddhhiiss.tar.gz` ตามเวลาไทย UTC+7 ลงใน `%USERPROFILE%\.topview` โดยไม่เขียนทับไฟล์สำรองเดิม
+
 หากต้องการดู path จริงระหว่างพัฒนา ให้ตรวจค่าจาก main process:
 
 ```ts

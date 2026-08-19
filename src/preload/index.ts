@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
+  BackupDatabaseResult,
   DeleteGisFeatureResult,
   GisDataRecord,
   GisFeatureInfo,
@@ -22,6 +23,7 @@ const api = {
   ): Promise<UpdateGisFeatureInfoResult> => ipcRenderer.invoke('gis-data:update-info', id, info),
   deleteGisFeature: (id: number): Promise<DeleteGisFeatureResult> =>
     ipcRenderer.invoke('gis-data:delete', id),
+  backupDatabase: (): Promise<BackupDatabaseResult> => ipcRenderer.invoke('database:backup'),
   getGistdaWmsConfig: (): Promise<GistdaWmsConfig> => ipcRenderer.invoke('gistda-wms:get-config')
 }
 
