@@ -23,6 +23,17 @@ await database.waitReady
 
 เมนู `สำรองข้อมูล` เรียก `database.dumpDataDir('gzip')` และเขียน snapshot เป็นไฟล์ `topview_yyyymmddhhiiss.tar.gz` ตามเวลาไทย UTC+7 ลงใน `%USERPROFILE%\.topview` โดยไม่เขียนทับไฟล์สำรองเดิม
 
+เมนู `นำเข้า > นำเข้าข้อมูลสำรอง` เลือกไฟล์ `.tar.gz` แล้ว restore ด้วย `loadDataDir` ตามขั้นตอนนี้:
+
+1. ตรวจชนิดไฟล์และ gzip signature
+2. สร้างไฟล์สำรองของฐานข้อมูลปัจจุบันอัตโนมัติ
+3. เปิดไฟล์สำรองใน staging directory และตรวจตาราง `gis_data`, `config` และ PostGIS
+4. ปิดฐานข้อมูลเดิมและสลับ staging directory เข้ามาใช้งาน
+5. เปิดและตรวจฐานข้อมูลใหม่อีกครั้ง
+6. หากล้มเหลวหลังเริ่มสลับฐานข้อมูล ระบบจะ rollback กลับฐานเดิมอัตโนมัติ
+
+main process ส่งสถานะแต่ละขั้นผ่าน IPC `database:restore-progress` เพื่อแสดง progress bar ใน renderer และหน้าแผนที่จะ reload หลัง restore สำเร็จ
+
 หากต้องการดู path จริงระหว่างพัฒนา ให้ตรวจค่าจาก main process:
 
 ```ts

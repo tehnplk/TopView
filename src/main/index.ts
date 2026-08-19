@@ -5,6 +5,7 @@ import {
   deleteGisFeature,
   getDatabase,
   listGisGeometry,
+  restoreDatabase,
   saveGisGeometry,
   updateGisFeatureInfo
 } from './database'
@@ -127,6 +128,72 @@ app.whenReady().then(() => {
       : await dialog.showOpenDialog(options)
 
     return result.canceled ? null : (result.filePaths[0] ?? null)
+  })
+  ipcMain.handle('database:restore', async (event, backupPath: unknown) => {
+    const parentWindow = BrowserWindow.fromWebContents(event.sender)
+    const confirmOptions = {
+      type: 'warning' as const,
+      title: 'นำเข้าข้อมูลสำรอง',
+      message: 'ต้องการแทนที่ฐานข้อมูลปัจจุบันหรือไม่',
+      detail:
+        'แอปจะสำรองฐานข้อมูลปัจจุบันให้อัตโนมัติก่อนเริ่ม และจะกู้คืนฐานเดิมหากนำเข้าไม่สำเร็จ',
+      buttons: ['ยกเลิก', 'นำเข้าข้อมูล'],
+      defaultId: 1,
+      cancelId: 0,
+      noLink: true
+    }
+    const confirmation = parentWindow
+      ? await dialog.showMessageBox(parentWindow, confirmOptions)
+      : await dialog.showMessageBox(confirmOptions)
+
+    if (confirmation.response !== 1) {
+      return { restored: false } as const
+    }
+
+    try {
+      const result = await restoreDatabase(backupPath, (progress) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('database:restore-progress', progress)
+        }
+      })
+
+      if (!result.restored) {
+        throw new Error('Database restore did not complete')
+      }
+
+      const successOptions = {
+        type: 'info' as const,
+        title: 'นำเข้าข้อมูลสำรอง',
+        message: 'นำเข้าข้อมูลสำรองเรียบร้อยแล้ว',
+        detail: `ฐานข้อมูลเดิมถูกสำรองไว้ที่:\n${result.safetyBackupPath}`,
+        buttons: ['ตกลง']
+      }
+
+      if (parentWindow) {
+        await dialog.showMessageBox(parentWindow, successOptions)
+      } else {
+        await dialog.showMessageBox(successOptions)
+      }
+
+      return result
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ'
+      const errorOptions = {
+        type: 'error' as const,
+        title: 'นำเข้าข้อมูลสำรอง',
+        message: 'ไม่สามารถนำเข้าข้อมูลสำรองได้',
+        detail,
+        buttons: ['ตกลง']
+      }
+
+      if (parentWindow) {
+        await dialog.showMessageBox(parentWindow, errorOptions)
+      } else {
+        await dialog.showMessageBox(errorOptions)
+      }
+
+      throw error
+    }
   })
   ipcMain.handle('gistda-wms:get-config', () => {
     return getGistdaWmsConfig()

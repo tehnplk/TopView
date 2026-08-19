@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
+import type { RestoreDatabaseProgress } from '../../shared/gis'
 import Map from './components/Map'
 
 function App(): React.JSX.Element {
@@ -9,6 +10,7 @@ function App(): React.JSX.Element {
   const [isBackingUp, setIsBackingUp] = useState(false)
   const [selected43Archive, setSelected43Archive] = useState<string | null>(null)
   const [selectedBackupFile, setSelectedBackupFile] = useState<string | null>(null)
+  const [restoreProgress, setRestoreProgress] = useState<RestoreDatabaseProgress | null>(null)
 
   const openImportDialog = (): void => {
     setSelected43Archive(null)
@@ -25,10 +27,25 @@ function App(): React.JSX.Element {
   }
 
   const browseBackupFile = async (): Promise<void> => {
-    const selectedFile = await window.api?.browseBackupFile()
+    if (!window.api) {
+      return
+    }
+
+    const selectedFile = await window.api.browseBackupFile()
 
     if (selectedFile) {
       setSelectedBackupFile(selectedFile)
+
+      try {
+        const result = await window.api.restoreDatabase(selectedFile)
+
+        if (result.restored) {
+          window.location.reload()
+        }
+      } catch (error) {
+        console.error('Unable to restore the database', error)
+        setRestoreProgress(null)
+      }
     }
   }
 
@@ -50,6 +67,14 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     void window.api?.getAppVersion().then(setVersion)
+  }, [])
+
+  useEffect(() => {
+    return window.api?.onRestoreDatabaseProgress((progress) => {
+      setIsImportOpen(false)
+      setIsAboutOpen(false)
+      setRestoreProgress(progress)
+    })
   }, [])
 
   useEffect(() => {
@@ -86,6 +111,25 @@ function App(): React.JSX.Element {
       <section className="workspace" aria-label="Map workspace">
         <Map />
       </section>
+
+      {restoreProgress && (
+        <div className="about-overlay restore-overlay">
+          <section
+            className="restore-progress-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="restore-progress-title"
+            aria-describedby="restore-progress-message"
+          >
+            <h2 id="restore-progress-title">กำลังนำเข้าข้อมูลสำรอง</h2>
+            <p id="restore-progress-message">{restoreProgress.message}</p>
+            <progress value={restoreProgress.percent} max="100">
+              {restoreProgress.percent}%
+            </progress>
+            <span>{restoreProgress.percent}%</span>
+          </section>
+        </div>
+      )}
 
       {isImportOpen && (
         <div

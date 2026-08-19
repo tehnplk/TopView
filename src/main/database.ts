@@ -1,19 +1,86 @@
 import { PGlite } from '@electric-sql/pglite'
 import { postgis } from '@electric-sql/pglite-postgis'
 import { app } from 'electron'
-import { mkdir, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { basename, dirname, join, resolve } from 'node:path'
 import type {
   BackupDatabaseResult,
   DeleteGisFeatureResult,
   GisDataRecord,
   GisFeatureInfo,
   GisGeometry,
+  RestoreDatabaseProgress,
+  RestoreDatabaseResult,
   SaveGisGeometryResult,
   UpdateGisFeatureInfoResult
 } from '../shared/gis'
 
 let databasePromise: Promise<PGlite> | null = null
+
+type RestoreProgressCallback = (progress: RestoreDatabaseProgress) => void
+
+function getDatabaseDirectory(): string {
+  return join(app.getPath('userData'), 'topview-pglite')
+}
+
+async function initializeDatabase(database: PGlite): Promise<void> {
+  await database.exec(`
+    CREATE EXTENSION IF NOT EXISTS postgis;
+
+    CREATE TABLE IF NOT EXISTS gis_data (
+      id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      spatial geometry(Geometry, 4326) NOT NULL,
+      info JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    ALTER TABLE gis_data
+    ADD COLUMN IF NOT EXISTS info JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+    CREATE TABLE IF NOT EXISTS config (
+      id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      "key" TEXT NOT NULL
+    );
+  `)
+}
+
+async function validateDatabase(database: PGlite): Promise<void> {
+  await database.query('SELECT COUNT(*) FROM gis_data;')
+  await database.query('SELECT COUNT(*) FROM config;')
+  await database.query('SELECT PostGIS_Version();')
+}
+
+async function validateBackupSchema(database: PGlite): Promise<void> {
+  const result = await database.query<{ gisData: string | null; config: string | null }>(`
+    SELECT
+      to_regclass('public.gis_data')::text AS "gisData",
+      to_regclass('public.config')::text AS config;
+  `)
+  const tables = result.rows[0]
+
+  if (!tables?.gisData || !tables.config) {
+    throw new Error('ไฟล์นี้ไม่ใช่ฐานข้อมูลสำรองของ TopView')
+  }
+}
+
+function assertManagedDatabaseDirectory(directory: string): void {
+  const userDataDirectory = resolve(app.getPath('userData'))
+  const resolvedDirectory = resolve(directory)
+  const directoryName = basename(resolvedDirectory)
+
+  if (
+    dirname(resolvedDirectory) !== userDataDirectory ||
+    (directoryName !== 'topview-pglite' && !directoryName.startsWith('topview-pglite-'))
+  ) {
+    throw new Error('Refusing to modify a directory outside the TopView database area')
+  }
+}
+
+async function removeManagedDatabaseDirectory(directory: string): Promise<void> {
+  assertManagedDatabaseDirectory(directory)
+  await rm(directory, { recursive: true, force: true })
+}
 
 function isCoordinate(value: unknown): value is [number, number] {
   return (
@@ -107,30 +174,12 @@ export async function getDatabase(): Promise<PGlite> {
   if (!databasePromise) {
     databasePromise = (async () => {
       const database = new PGlite({
-        dataDir: join(app.getPath('userData'), 'topview-pglite'),
+        dataDir: getDatabaseDirectory(),
         extensions: { postgis }
       })
 
       await database.waitReady
-      await database.exec(`
-        CREATE EXTENSION IF NOT EXISTS postgis;
-
-        CREATE TABLE IF NOT EXISTS gis_data (
-          id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-          spatial geometry(Geometry, 4326) NOT NULL,
-          info JSONB NOT NULL DEFAULT '{}'::jsonb,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-
-        ALTER TABLE gis_data
-        ADD COLUMN IF NOT EXISTS info JSONB NOT NULL DEFAULT '{}'::jsonb;
-
-        CREATE TABLE IF NOT EXISTS config (
-          id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-          name TEXT NOT NULL UNIQUE,
-          "key" TEXT NOT NULL
-        );
-      `)
+      await initializeDatabase(database)
 
       return database
     })()
@@ -253,6 +302,139 @@ export async function backupDatabase(): Promise<BackupDatabaseResult> {
   return {
     path: backupPath,
     size: backupData.byteLength
+  }
+}
+
+export async function restoreDatabase(
+  backupPathValue: unknown,
+  onProgress?: RestoreProgressCallback
+): Promise<RestoreDatabaseResult> {
+  const reportProgress = (percent: number, message: string): void => {
+    onProgress?.({ percent, message })
+  }
+
+  reportProgress(5, 'กำลังตรวจสอบไฟล์สำรอง')
+
+  if (typeof backupPathValue !== 'string' || !backupPathValue.toLowerCase().endsWith('.tar.gz')) {
+    throw new Error('กรุณาเลือกไฟล์สำรองนามสกุล .tar.gz')
+  }
+
+  const backupPath = resolve(backupPathValue)
+  const backupFile = await stat(backupPath)
+
+  if (!backupFile.isFile() || backupFile.size === 0) {
+    throw new Error('ไฟล์สำรองไม่ถูกต้องหรือไม่มีข้อมูล')
+  }
+
+  const backupData = await readFile(backupPath)
+
+  if (backupData[0] !== 0x1f || backupData[1] !== 0x8b) {
+    throw new Error('ไฟล์สำรองไม่ใช่ไฟล์ gzip ที่ถูกต้อง')
+  }
+
+  reportProgress(15, 'กำลังสำรองฐานข้อมูลปัจจุบันเพื่อความปลอดภัย')
+  const safetyBackup = await backupDatabase()
+  const operationId = `${Date.now()}-${process.pid}`
+  const databaseDirectory = getDatabaseDirectory()
+  const stagingDirectory = join(
+    app.getPath('userData'),
+    `topview-pglite-restore-${operationId}`
+  )
+  const recoveryDirectory = join(
+    app.getPath('userData'),
+    `topview-pglite-recovery-${operationId}`
+  )
+  let stagingDatabase: PGlite | null = null
+  let activeDatabaseClosed = false
+  let currentDatabaseMoved = false
+  let restoredDatabaseMoved = false
+
+  try {
+    reportProgress(30, 'กำลังทดสอบไฟล์สำรอง')
+    const loadDataDir = new Blob([Uint8Array.from(backupData)])
+    stagingDatabase = new PGlite({
+      dataDir: stagingDirectory,
+      loadDataDir,
+      extensions: { postgis }
+    })
+
+    await stagingDatabase.waitReady
+    await validateBackupSchema(stagingDatabase)
+    await initializeDatabase(stagingDatabase)
+    await validateDatabase(stagingDatabase)
+    await stagingDatabase.close()
+    stagingDatabase = null
+
+    reportProgress(55, 'กำลังปิดฐานข้อมูลปัจจุบัน')
+    const activeDatabase = await getDatabase()
+    await activeDatabase.close()
+    databasePromise = null
+    activeDatabaseClosed = true
+
+    reportProgress(70, 'กำลังติดตั้งฐานข้อมูลจากไฟล์สำรอง')
+    await rename(databaseDirectory, recoveryDirectory)
+    currentDatabaseMoved = true
+    await rename(stagingDirectory, databaseDirectory)
+    restoredDatabaseMoved = true
+
+    reportProgress(88, 'กำลังเปิดและตรวจสอบฐานข้อมูลที่นำเข้า')
+    const restoredDatabase = await getDatabase()
+    await validateDatabase(restoredDatabase)
+
+    try {
+      await removeManagedDatabaseDirectory(recoveryDirectory)
+    } catch (cleanupError) {
+      console.error('Unable to remove the temporary recovery database', cleanupError)
+    }
+
+    currentDatabaseMoved = false
+    reportProgress(100, 'นำเข้าข้อมูลสำรองเรียบร้อยแล้ว')
+
+    return {
+      restored: true,
+      path: backupPath,
+      safetyBackupPath: safetyBackup.path
+    }
+  } catch (error) {
+    if (stagingDatabase) {
+      await stagingDatabase.close().catch(() => undefined)
+    }
+
+    if (currentDatabaseMoved) {
+      try {
+        if (databasePromise) {
+          const failedRestoredDatabase = await databasePromise.catch(() => null)
+
+          if (failedRestoredDatabase && !failedRestoredDatabase.closed) {
+            await failedRestoredDatabase.close()
+          }
+        }
+
+        databasePromise = null
+
+        if (restoredDatabaseMoved) {
+          await removeManagedDatabaseDirectory(databaseDirectory)
+        }
+
+        await rename(recoveryDirectory, databaseDirectory)
+        currentDatabaseMoved = false
+        await getDatabase()
+      } catch (rollbackError) {
+        const restoreMessage = error instanceof Error ? error.message : String(error)
+        const rollbackMessage =
+          rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
+
+        throw new Error(
+          `Restore failed: ${restoreMessage}. Automatic rollback also failed: ${rollbackMessage}`
+        )
+      }
+    } else if (activeDatabaseClosed) {
+      databasePromise = null
+      await getDatabase()
+    }
+
+    await removeManagedDatabaseDirectory(stagingDirectory).catch(() => undefined)
+    throw error
   }
 }
 

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type {
   BackupDatabaseResult,
   DeleteGisFeatureResult,
@@ -6,6 +6,8 @@ import type {
   GisFeatureInfo,
   GisGeometry,
   GistdaWmsConfig,
+  RestoreDatabaseProgress,
+  RestoreDatabaseResult,
   SaveGisGeometryResult,
   UpdateGisFeatureInfoResult
 } from '../shared/gis'
@@ -27,6 +29,18 @@ const api = {
   browse43FilesArchive: (): Promise<string | null> =>
     ipcRenderer.invoke('import:browse-43-files'),
   browseBackupFile: (): Promise<string | null> => ipcRenderer.invoke('import:browse-backup'),
+  restoreDatabase: (backupPath: string): Promise<RestoreDatabaseResult> =>
+    ipcRenderer.invoke('database:restore', backupPath),
+  onRestoreDatabaseProgress: (
+    callback: (progress: RestoreDatabaseProgress) => void
+  ): (() => void) => {
+    const listener = (_event: IpcRendererEvent, progress: RestoreDatabaseProgress): void => {
+      callback(progress)
+    }
+
+    ipcRenderer.on('database:restore-progress', listener)
+    return () => ipcRenderer.removeListener('database:restore-progress', listener)
+  },
   getGistdaWmsConfig: (): Promise<GistdaWmsConfig> => ipcRenderer.invoke('gistda-wms:get-config')
 }
 

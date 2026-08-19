@@ -30,6 +30,19 @@ export type BackupDatabaseResult = {
   size: number
 }
 
+export type RestoreDatabaseProgress = {
+  percent: number
+  message: string
+}
+
+export type RestoreDatabaseResult =
+  | { restored: false }
+  | {
+      restored: true
+      path: string
+      safetyBackupPath: string
+    }
+
 export type GisDataRecord = {
   id: number
   spatial: GisGeometry
