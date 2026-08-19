@@ -32,6 +32,7 @@ function App(): React.JSX.Element {
         <nav className="app-nav" aria-label="เมนูหลัก">
           <button type="button">นำเข้า</button>
           <button type="button">จัดการชั้นข้อมูล</button>
+          <button type="button">สำรองข้อมูล</button>
           <button type="button">ตั้งค่า</button>
           <button type="button" onClick={() => setIsAboutOpen(true)}>เกี่ยวกับ</button>
         </nav>
