@@ -1,5 +1,7 @@
 import { app, BrowserWindow, ipcMain, Menu } from 'electron'
 import { join } from 'node:path'
+import { getDatabase, listGisGeometry, saveGisGeometry, updateGisFeatureInfo } from './database'
+import { getGistdaWmsConfig, stopGistdaWmsProxy } from './gistdaWms'
 
 app.disableHardwareAcceleration()
 Menu.setApplicationMenu(null)
@@ -35,6 +37,22 @@ app.whenReady().then(() => {
   ipcMain.handle('app:get-version', () => {
     return app.getVersion()
   })
+  ipcMain.handle('gis-data:save', (_event, geometry: unknown, info: unknown) => {
+    return saveGisGeometry(geometry, info)
+  })
+  ipcMain.handle('gis-data:list', () => {
+    return listGisGeometry()
+  })
+  ipcMain.handle('gis-data:update-info', (_event, id: unknown, info: unknown) => {
+    return updateGisFeatureInfo(id, info)
+  })
+  ipcMain.handle('gistda-wms:get-config', () => {
+    return getGistdaWmsConfig()
+  })
+
+  void getDatabase().catch((error: unknown) => {
+    console.error('Unable to initialize the GIS database', error)
+  })
 
   createWindow()
 
@@ -49,4 +67,8 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+app.on('before-quit', () => {
+  stopGistdaWmsProxy()
 })
