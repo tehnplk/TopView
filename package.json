@@ -7,6 +7,8 @@
   "scripts": {
     "dev": "node scripts/run-electron-vite.cjs dev",
     "build": "npm run typecheck && electron-vite build",
+    "build:win": "npm run build && electron-builder --win nsis --x64",
+    "pack:win": "npm run build && electron-builder --win dir --x64",
     "preview": "node scripts/run-electron-vite.cjs preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"
   },
@@ -26,8 +28,43 @@
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^5.0.0",
     "electron": "^43.4.1",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "typescript": "^7.0.2",
     "vite": "^7.3.6"
+  },
+  "build": {
+    "appId": "com.topview.desktop",
+    "productName": "TopView",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "out/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/@electric-sql/pglite/dist/**/*",
+      "node_modules/@electric-sql/pglite-postgis/dist/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "TopView-${version}-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "TopView",
+      "deleteAppDataOnUninstall": false
+    }
   }
 }

@@ -21,6 +21,10 @@ export type UpdateGisFeatureInfoResult = {
   info: GisFeatureInfo
 }
 
+export type DeleteGisFeatureResult = {
+  id: number
+}
+
 export type GisDataRecord = {
   id: number
   spatial: GisGeometry

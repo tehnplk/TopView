@@ -3,6 +3,7 @@ import { postgis } from '@electric-sql/pglite-postgis'
 import { app } from 'electron'
 import { join } from 'node:path'
 import type {
+  DeleteGisFeatureResult,
   GisDataRecord,
   GisFeatureInfo,
   GisGeometry,
@@ -199,6 +200,25 @@ export async function updateGisFeatureInfo(
     id: updatedRow.id,
     info: parseGisFeatureInfo(updatedRow.info)
   }
+}
+
+export async function deleteGisFeature(idValue: unknown): Promise<DeleteGisFeatureResult> {
+  if (!Number.isInteger(idValue) || (idValue as number) <= 0) {
+    throw new Error('Invalid GIS feature id')
+  }
+
+  const database = await getDatabase()
+  const result = await database.query<{ id: number }>(
+    'DELETE FROM gis_data WHERE id = $1 RETURNING id;',
+    [idValue]
+  )
+  const deletedRow = result.rows[0]
+
+  if (!deletedRow) {
+    throw new Error('GIS feature was not found')
+  }
+
+  return { id: deletedRow.id }
 }
 
 export async function getConfigValue(name: string): Promise<string | null> {

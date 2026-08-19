@@ -1,6 +1,12 @@
 import { app, BrowserWindow, ipcMain, Menu } from 'electron'
 import { join } from 'node:path'
-import { getDatabase, listGisGeometry, saveGisGeometry, updateGisFeatureInfo } from './database'
+import {
+  deleteGisFeature,
+  getDatabase,
+  listGisGeometry,
+  saveGisGeometry,
+  updateGisFeatureInfo
+} from './database'
 import { getGistdaWmsConfig, stopGistdaWmsProxy } from './gistdaWms'
 
 app.disableHardwareAcceleration()
@@ -13,6 +19,12 @@ function createWindow(): void {
     minWidth: 760,
     minHeight: 520,
     backgroundColor: '#f4f5f7',
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#4658df',
+      symbolColor: '#ffffff',
+      height: 35
+    },
     show: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -23,6 +35,7 @@ function createWindow(): void {
   })
 
   mainWindow.once('ready-to-show', () => {
+    mainWindow.maximize()
     mainWindow.show()
   })
 
@@ -45,6 +58,9 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('gis-data:update-info', (_event, id: unknown, info: unknown) => {
     return updateGisFeatureInfo(id, info)
+  })
+  ipcMain.handle('gis-data:delete', (_event, id: unknown) => {
+    return deleteGisFeature(id)
   })
   ipcMain.handle('gistda-wms:get-config', () => {
     return getGistdaWmsConfig()

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Circle as LeafletCircle,
   LatLng,
@@ -23,8 +24,7 @@ import {
   Plus,
   Ruler,
   Spline,
-  Trash2,
-  X
+  Trash2
 } from 'lucide-react'
 import '@geoman-io/leaflet-geoman-free'
 import '@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css'
@@ -192,6 +192,7 @@ function Map(): React.JSX.Element {
   const wmsLayersRef = useRef<Partial<Record<GistdaWmsLayerId, TileLayer>>>({})
   const activeToolRef = useRef<MapTool | null>(null)
   const pendingLayerRef = useRef<Layer | null>(null)
+  const activeFeatureLayerRef = useRef<Layer | null>(null)
   const savedFeatureRecordsRef = useRef<globalThis.Map<number, GisDataRecord>>(
     new globalThis.Map()
   )
@@ -208,6 +209,10 @@ function Map(): React.JSX.Element {
   const [isEditingInfo, setIsEditingInfo] = useState(false)
   const [isInfoSaving, setIsInfoSaving] = useState(false)
   const [infoError, setInfoError] = useState<string | null>(null)
+  const [featureInfoPopupHost, setFeatureInfoPopupHost] = useState<HTMLDivElement | null>(null)
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false)
+  const [isDeletingFeature, setIsDeletingFeature] = useState(false)
+  const [deleteFeatureError, setDeleteFeatureError] = useState<string | null>(null)
 
   function openFeatureInfo(featureId: number): void {
     const record = savedFeatureRecordsRef.current.get(featureId)
@@ -224,7 +229,33 @@ function Map(): React.JSX.Element {
 
   function registerSavedFeatureLayer(layer: Layer, record: GisDataRecord): void {
     savedFeatureRecordsRef.current.set(record.id, record)
-    layer.on('click', () => openFeatureInfo(record.id))
+
+    const popupHost = document.createElement('div')
+    popupHost.className = 'map-feature-info-popup-host'
+    layer.bindPopup(popupHost, {
+      className: 'map-feature-info-popup',
+      minWidth: 260,
+      maxWidth: 340,
+      autoPanPadding: [20, 20]
+    })
+    layer.on('popupopen', () => {
+      activeFeatureLayerRef.current = layer
+      setFeatureInfoPopupHost(popupHost)
+      openFeatureInfo(record.id)
+    })
+    layer.on('popupclose', () => {
+      if (activeFeatureLayerRef.current !== layer) {
+        return
+      }
+
+      activeFeatureLayerRef.current = null
+      setFeatureInfoPopupHost(null)
+      setSelectedFeature(null)
+      setIsEditingInfo(false)
+      setInfoError(null)
+      setIsDeleteConfirmOpen(false)
+      setDeleteFeatureError(null)
+    })
 
     const interactiveLayer = layer as Layer & { getElement?: () => HTMLElement | null }
     const markAsInteractive = (): void => {
@@ -234,6 +265,14 @@ function Map(): React.JSX.Element {
     markAsInteractive()
     layer.on('add', markAsInteractive)
   }
+
+  useEffect(() => {
+    const frameId = window.requestAnimationFrame(() => {
+      activeFeatureLayerRef.current?.getPopup()?.update()
+    })
+
+    return () => window.cancelAnimationFrame(frameId)
+  }, [selectedFeature, infoFields, isEditingInfo, isInfoSaving, infoError])
 
   useEffect(() => {
     const container = containerRef.current
@@ -506,6 +545,7 @@ function Map(): React.JSX.Element {
       wmsLayersRef.current = {}
       activeToolRef.current = null
       pendingLayerRef.current = null
+      activeFeatureLayerRef.current = null
       savedFeatureRecordsRef.current.clear()
     }
   }, [])
@@ -643,6 +683,43 @@ function Map(): React.JSX.Element {
       setInfoError('บันทึก Feature Info ไม่สำเร็จ กรุณาลองอีกครั้ง')
     } finally {
       setIsInfoSaving(false)
+    }
+  }
+
+  async function deleteSelectedFeature(): Promise<void> {
+    if (!selectedFeature || isDeletingFeature) {
+      return
+    }
+
+    if (!window.api) {
+      setDeleteFeatureError('ไม่สามารถเชื่อมต่อฐานข้อมูลได้')
+      return
+    }
+
+    const featureId = selectedFeature.id
+    const featureLayer = activeFeatureLayerRef.current
+    setIsDeletingFeature(true)
+    setDeleteFeatureError(null)
+
+    try {
+      await window.api.deleteGisFeature(featureId)
+      savedFeatureRecordsRef.current.delete(featureId)
+
+      if (featureLayer && mapRef.current?.hasLayer(featureLayer)) {
+        mapRef.current.removeLayer(featureLayer)
+      }
+
+      activeFeatureLayerRef.current = null
+      setFeatureInfoPopupHost(null)
+      setSelectedFeature(null)
+      setIsEditingInfo(false)
+      setInfoError(null)
+      setIsDeleteConfirmOpen(false)
+    } catch (error) {
+      console.error('Unable to delete GIS feature', error)
+      setDeleteFeatureError('ลบ Feature ไม่สำเร็จ กรุณาลองอีกครั้ง')
+    } finally {
+      setIsDeletingFeature(false)
     }
   }
 
@@ -848,7 +925,7 @@ function Map(): React.JSX.Element {
         ))}
       </div>
 
-      {selectedFeature && (
+      {selectedFeature && featureInfoPopupHost && createPortal(
         <section
           className="map-feature-info-panel"
           role="dialog"
@@ -865,19 +942,6 @@ function Map(): React.JSX.Element {
                 </span>
               </p>
             </div>
-            <button
-              type="button"
-              className="map-feature-info-close"
-              aria-label="ปิด Feature Info"
-              disabled={isInfoSaving}
-              onClick={() => {
-                setSelectedFeature(null)
-                setIsEditingInfo(false)
-                setInfoError(null)
-              }}
-            >
-              <X size={18} aria-hidden="true" />
-            </button>
           </header>
 
           <div className="map-feature-info-body">
@@ -982,17 +1046,73 @@ function Map(): React.JSX.Element {
                 </button>
               </>
             ) : (
-              <button type="button" className="primary" onClick={beginEditingInfo}>
-                {Object.keys(selectedFeature.info).length > 0 ? (
-                  <Pencil size={15} aria-hidden="true" />
-                ) : (
-                  <Plus size={16} aria-hidden="true" />
-                )}
-                {Object.keys(selectedFeature.info).length > 0 ? 'แก้ไขข้อมูล' : 'เพิ่มข้อมูล'}
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={() => {
+                    setDeleteFeatureError(null)
+                    setIsDeleteConfirmOpen(true)
+                  }}
+                >
+                  <Trash2 size={15} aria-hidden="true" />
+                  ลบ Feature
+                </button>
+                <button type="button" className="primary" onClick={beginEditingInfo}>
+                  {Object.keys(selectedFeature.info).length > 0 ? (
+                    <Pencil size={15} aria-hidden="true" />
+                  ) : (
+                    <Plus size={16} aria-hidden="true" />
+                  )}
+                  {Object.keys(selectedFeature.info).length > 0 ? 'แก้ไขข้อมูล' : 'เพิ่มข้อมูล'}
+                </button>
+              </>
             )}
           </footer>
-        </section>
+        </section>,
+        featureInfoPopupHost
+      )}
+
+      {selectedFeature && isDeleteConfirmOpen && (
+        <div className="map-save-overlay map-feature-delete-overlay">
+          <section
+            className="map-save-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="map-delete-title"
+            aria-describedby="map-delete-description"
+          >
+            <h2 id="map-delete-title">ลบ Feature หรือไม่?</h2>
+            <p id="map-delete-description">
+              Feature #{selectedFeature.id} จะถูกลบออกจากแผนที่และฐานข้อมูล ไม่สามารถย้อนกลับได้
+            </p>
+
+            {deleteFeatureError && (
+              <p className="map-save-error" role="alert">
+                {deleteFeatureError}
+              </p>
+            )}
+
+            <div className="map-save-actions">
+              <button
+                type="button"
+                className="map-save-button secondary"
+                disabled={isDeletingFeature}
+                onClick={() => setIsDeleteConfirmOpen(false)}
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                className="map-save-button danger"
+                disabled={isDeletingFeature}
+                onClick={() => void deleteSelectedFeature()}
+              >
+                {isDeletingFeature ? 'กำลังลบ...' : 'ลบ Feature'}
+              </button>
+            </div>
+          </section>
+        </div>
       )}
 
       {pendingGeometry && (
