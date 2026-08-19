@@ -88,6 +88,15 @@ function App(): React.JSX.Element {
                   <dd>Windows Desktop</dd>
                 </div>
               </dl>
+
+              <section className="about-developer" aria-labelledby="about-developer-title">
+                <h3 id="about-developer-title">เกี่ยวกับผู้พัฒนา</h3>
+                <p className="about-developer-name">นายอุเทน จาดยางโทน</p>
+                <p>นักสาธารณสุขชำนาญการ</p>
+                <p>กลุ่มงานสุขภาพดิจิทัล</p>
+                <p>สำนักงานสาธารณสุขจังหวัดพิษณุโลก</p>
+                <p>โทรศัพท์ 055xxxxxx</p>
+              </section>
             </div>
 
             <footer className="about-dialog-footer">

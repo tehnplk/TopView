@@ -34,6 +34,14 @@ select {
   min-height: 100vh;
   display: grid;
   grid-template-rows: env(titlebar-area-height, 35px) 1fr;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.app-shell input,
+.app-shell textarea {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .app-header {
@@ -275,6 +283,35 @@ select {
   color: #20242c;
   font-size: 13px;
   font-weight: 700;
+}
+
+.about-developer {
+  margin-top: 18px;
+  padding: 14px 15px;
+  background: #f3f8ff;
+  border: 1px solid #d4e5f8;
+  border-radius: 7px;
+}
+
+.about-developer h3 {
+  margin: 0 0 9px;
+  color: #1766bd;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.about-developer p {
+  margin: 3px 0 0;
+  color: #596270;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.about-developer .about-developer-name {
+  margin-top: 0;
+  color: #20242c;
+  font-size: 13px;
+  font-weight: 750;
 }
 
 .about-dialog-footer {
