@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import Map from './components/Map'
 
 function App(): React.JSX.Element {
   const [version, setVersion] = useState<string | null>(null)
@@ -15,11 +16,8 @@ function App(): React.JSX.Element {
         {version && <span className="version">v{version}</span>}
       </header>
 
-      <section className="workspace" aria-label="TopView workspace">
-        <div className="empty-state">
-          <div className="pulse" aria-hidden="true" />
-          <p>TopView</p>
-        </div>
+      <section className="workspace" aria-label="Map workspace">
+        <Map />
       </section>
     </main>
   )

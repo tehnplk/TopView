@@ -30,6 +30,7 @@ select {
 }
 
 .app-shell {
+  height: 100vh;
   min-height: 100vh;
   display: grid;
   grid-template-rows: 56px 1fr;
@@ -72,43 +73,183 @@ select {
 }
 
 .workspace {
-  display: grid;
   min-height: 0;
-  place-items: center;
-  padding: 32px;
+  padding: 16px;
+  overflow: hidden;
 }
 
-.empty-state {
-  display: grid;
-  justify-items: center;
-  gap: 14px;
-  color: #555d68;
+.map-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 360px;
+  overflow: hidden;
+  background: #e6e9ed;
+  border: 1px solid #c9ced5;
+  border-radius: 8px;
 }
 
-.empty-state p {
-  margin: 0;
-  font-size: 14px;
+.map {
+  width: 100%;
+  height: 100%;
+}
+
+.map-layer-switcher {
+  position: absolute;
+  z-index: 1000;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid #aeb5be;
+  border-radius: 6px;
+  box-shadow: 0 1px 5px rgb(0 0 0 / 24%);
+}
+
+.map-layer-button {
+  height: 34px;
+  padding: 0 12px;
+  color: #303640;
+  background: #ffffff;
+  border: 0;
+  border-left: 1px solid #d7dbe0;
+  cursor: pointer;
+  font-size: 13px;
   font-weight: 600;
+  letter-spacing: 0;
+  white-space: nowrap;
 }
 
-.pulse {
-  width: 40px;
-  height: 40px;
-  border: 3px solid #d7dbe0;
-  border-top-color: #d39922;
-  border-radius: 50%;
-  animation: spin 900ms linear infinite;
+.map-layer-button:first-child {
+  border-left: 0;
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
+.map-layer-button:hover {
+  background: #f0f2f4;
+}
+
+.map-layer-button:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid #2368b5;
+  outline-offset: -2px;
+}
+
+.map-layer-button[aria-pressed="true"] {
+  color: #ffffff;
+  background: #20242c;
+}
+
+.map-toolbox {
+  position: absolute;
+  z-index: 1000;
+  top: 82px;
+  left: 10px;
+  display: grid;
+  overflow: visible;
+  background: #ffffff;
+  border: 1px solid #aeb5be;
+  border-radius: 6px;
+  box-shadow: 0 1px 5px rgb(0 0 0 / 24%);
+}
+
+.map-tool-button {
+  position: relative;
+  display: grid;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  place-items: center;
+  color: #303640;
+  background: #ffffff;
+  border: 0;
+  border-top: 1px solid #d7dbe0;
+  cursor: pointer;
+}
+
+.map-tool-button:first-child {
+  border-top: 0;
+  border-radius: 5px 5px 0 0;
+}
+
+.map-tool-button:last-child {
+  border-radius: 0 0 5px 5px;
+}
+
+.map-tool-button:hover {
+  background: #f0f2f4;
+}
+
+.map-tool-button:focus-visible {
+  z-index: 1;
+  outline: 2px solid #2368b5;
+  outline-offset: -2px;
+}
+
+.map-tool-button[aria-pressed="true"] {
+  color: #ffffff;
+  background: #20242c;
+}
+
+.map-tool-button::after {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 8px);
+  padding: 5px 8px;
+  color: #ffffff;
+  background: #20242c;
+  border-radius: 4px;
+  content: attr(data-tooltip);
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%) translateX(-2px);
+  transition: opacity 120ms ease, transform 120ms ease;
+  visibility: hidden;
+  white-space: nowrap;
+}
+
+.map-tool-button:hover::after,
+.map-tool-button:focus-visible::after {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+  visibility: visible;
+}
+
+.map-measurement-label {
+  padding: 4px 7px;
+  color: #20242c;
+  background: #ffffff;
+  border: 0;
+  border-radius: 4px;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 22%);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.map-measurement-label::before {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .workspace {
+    padding: 8px;
   }
-}
 
-@media (prefers-reduced-motion: reduce) {
-  .pulse {
-    animation: none;
-    border-color: #d39922;
+  .map-layer-switcher {
+    top: 8px;
+    right: 8px;
+  }
+
+  .map-layer-button {
+    height: 32px;
+    padding: 0 9px;
+    font-size: 12px;
+  }
+
+  .map-toolbox {
+    left: 8px;
   }
 }

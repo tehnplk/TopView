@@ -3,4 +3,5 @@ out/
 dist/
 *.log
 *.tsbuildinfo
+.playwright-cli/
 .DS_Store
