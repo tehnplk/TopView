@@ -218,6 +218,142 @@ select {
   outline-offset: 2px;
 }
 
+.settings-dialog {
+  width: min(420px, 100%);
+  overflow: hidden;
+  color: #20242c;
+  background: #ffffff;
+  border: 1px solid rgb(23 78 177 / 20%);
+  border-radius: 12px;
+  box-shadow: 0 20px 52px rgb(15 39 92 / 28%);
+}
+
+.settings-dialog-header {
+  display: flex;
+  min-height: 44px;
+  padding: 0 12px 0 18px;
+  align-items: center;
+  justify-content: space-between;
+  color: #ffffff;
+  background: linear-gradient(112deg, #06a6df 0%, #1677e8 55%, #4658df 100%);
+}
+
+.settings-dialog-header h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.settings-dialog-header button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  place-items: center;
+  color: #ffffff;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.settings-dialog-header button:hover:not(:disabled) {
+  background: rgb(255 255 255 / 16%);
+}
+
+.settings-dialog-body {
+  display: grid;
+  min-height: 112px;
+  padding: 22px 24px 24px;
+  align-content: start;
+  gap: 8px;
+}
+
+.settings-dialog-body label {
+  color: #344054;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.settings-dialog-body input {
+  width: 100%;
+  height: 38px;
+  padding: 0 10px;
+  color: #20242c;
+  background: #ffffff;
+  border: 1px solid #b9c2cf;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.settings-loading,
+.settings-error {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
+.settings-loading {
+  color: #667085;
+}
+
+.settings-error {
+  color: #b42318;
+}
+
+.settings-dialog-footer {
+  display: flex;
+  min-height: 56px;
+  padding: 10px 16px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  background: #f6f8fa;
+  border-top: 1px solid #dce1e7;
+}
+
+.settings-dialog-footer button {
+  min-width: 76px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.settings-cancel-button {
+  color: #344054;
+  background: #ffffff;
+  border: 1px solid #b9c2cf;
+}
+
+.settings-save-button {
+  color: #ffffff;
+  background: #176fd4;
+  border: 1px solid #176fd4;
+}
+
+.settings-cancel-button:hover:not(:disabled) {
+  background: #eef1f5;
+}
+
+.settings-save-button:hover:not(:disabled) {
+  background: #125eb7;
+  border-color: #125eb7;
+}
+
+.settings-dialog button:disabled,
+.settings-dialog input:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.settings-dialog button:focus-visible,
+.settings-dialog input:focus-visible {
+  outline: 2px solid #ffcf4a;
+  outline-offset: 2px;
+}
+
 .restore-overlay {
   z-index: 4000;
   cursor: wait;

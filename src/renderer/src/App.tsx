@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { X } from 'lucide-react'
 import type { RestoreDatabaseProgress } from '../../shared/gis'
 import Map from './components/Map'
@@ -7,7 +7,13 @@ function App(): React.JSX.Element {
   const [version, setVersion] = useState<string | null>(null)
   const [isAboutOpen, setIsAboutOpen] = useState(false)
   const [isImportOpen, setIsImportOpen] = useState(false)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isBackingUp, setIsBackingUp] = useState(false)
+  const [isLoadingSettings, setIsLoadingSettings] = useState(false)
+  const [isSavingSettings, setIsSavingSettings] = useState(false)
+  const [settingsGistdaApiKey, setSettingsGistdaApiKey] = useState('')
+  const [settingsError, setSettingsError] = useState<string | null>(null)
+  const [mapRevision, setMapRevision] = useState(0)
   const [selected43Archive, setSelected43Archive] = useState<string | null>(null)
   const [selectedBackupFile, setSelectedBackupFile] = useState<string | null>(null)
   const [restoreProgress, setRestoreProgress] = useState<RestoreDatabaseProgress | null>(null)
@@ -16,6 +22,48 @@ function App(): React.JSX.Element {
     setSelected43Archive(null)
     setSelectedBackupFile(null)
     setIsImportOpen(true)
+  }
+
+  const openSettingsDialog = async (): Promise<void> => {
+    setIsSettingsOpen(true)
+    setIsLoadingSettings(true)
+    setSettingsError(null)
+
+    try {
+      if (!window.api) {
+        throw new Error('Desktop API is unavailable')
+      }
+
+      const settings = await window.api.getAppSettings()
+      setSettingsGistdaApiKey(settings.gistdaApiKey)
+    } catch (error) {
+      console.error('Unable to load application settings', error)
+      setSettingsError('ไม่สามารถโหลดการตั้งค่าได้')
+    } finally {
+      setIsLoadingSettings(false)
+    }
+  }
+
+  const saveSettings = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault()
+
+    if (isSavingSettings || !window.api) {
+      return
+    }
+
+    setIsSavingSettings(true)
+    setSettingsError(null)
+
+    try {
+      await window.api.saveAppSettings({ gistdaApiKey: settingsGistdaApiKey })
+      setIsSettingsOpen(false)
+      setMapRevision((current) => current + 1)
+    } catch (error) {
+      console.error('Unable to save application settings', error)
+      setSettingsError('ไม่สามารถบันทึกการตั้งค่าได้')
+    } finally {
+      setIsSavingSettings(false)
+    }
   }
 
   const browse43FilesArchive = async (): Promise<void> => {
@@ -73,12 +121,13 @@ function App(): React.JSX.Element {
     return window.api?.onRestoreDatabaseProgress((progress) => {
       setIsImportOpen(false)
       setIsAboutOpen(false)
+      setIsSettingsOpen(false)
       setRestoreProgress(progress)
     })
   }, [])
 
   useEffect(() => {
-    if (!isAboutOpen && !isImportOpen) {
+    if (!isAboutOpen && !isImportOpen && !isSettingsOpen) {
       return
     }
 
@@ -86,12 +135,15 @@ function App(): React.JSX.Element {
       if (event.key === 'Escape') {
         setIsAboutOpen(false)
         setIsImportOpen(false)
+        if (!isSavingSettings) {
+          setIsSettingsOpen(false)
+        }
       }
     }
 
     window.addEventListener('keydown', closeOnEscape)
     return () => window.removeEventListener('keydown', closeOnEscape)
-  }, [isAboutOpen, isImportOpen])
+  }, [isAboutOpen, isImportOpen, isSavingSettings, isSettingsOpen])
 
   return (
     <main className="app-shell">
@@ -103,13 +155,13 @@ function App(): React.JSX.Element {
           <button type="button" disabled={isBackingUp} onClick={() => void handleBackup()}>
             {isBackingUp ? 'กำลังสำรอง...' : 'สำรองข้อมูล'}
           </button>
-          <button type="button">ตั้งค่า</button>
+          <button type="button" onClick={() => void openSettingsDialog()}>ตั้งค่า</button>
           <button type="button" onClick={() => setIsAboutOpen(true)}>เกี่ยวกับ</button>
         </nav>
       </header>
 
       <section className="workspace" aria-label="Map workspace">
-        <Map />
+        <Map key={mapRevision} />
       </section>
 
       {restoreProgress && (
@@ -184,6 +236,74 @@ function App(): React.JSX.Element {
                 </p>
               )}
             </div>
+          </section>
+        </div>
+      )}
+
+      {isSettingsOpen && (
+        <div
+          className="about-overlay"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !isSavingSettings) {
+              setIsSettingsOpen(false)
+            }
+          }}
+        >
+          <section
+            className="settings-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="settings-title"
+          >
+            <header className="settings-dialog-header">
+              <h2 id="settings-title">ตั้งค่า</h2>
+              <button
+                type="button"
+                aria-label="ปิดหน้าต่างตั้งค่า"
+                disabled={isSavingSettings}
+                onClick={() => setIsSettingsOpen(false)}
+              >
+                <X size={18} aria-hidden="true" />
+              </button>
+            </header>
+
+            <form onSubmit={(event) => void saveSettings(event)}>
+              <div className="settings-dialog-body">
+                <label htmlFor="settings-gistda-api-key">GISTDA API Key</label>
+                {isLoadingSettings ? (
+                  <p className="settings-loading" role="status">กำลังโหลด...</p>
+                ) : (
+                  <input
+                    id="settings-gistda-api-key"
+                    type="password"
+                    autoComplete="off"
+                    autoFocus
+                    value={settingsGistdaApiKey}
+                    disabled={isSavingSettings}
+                    onChange={(event) => setSettingsGistdaApiKey(event.target.value)}
+                  />
+                )}
+                {settingsError && <p className="settings-error" role="alert">{settingsError}</p>}
+              </div>
+
+              <footer className="settings-dialog-footer">
+                <button
+                  type="button"
+                  className="settings-cancel-button"
+                  disabled={isSavingSettings}
+                  onClick={() => setIsSettingsOpen(false)}
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  className="settings-save-button"
+                  disabled={isLoadingSettings || isSavingSettings}
+                >
+                  {isSavingSettings ? 'กำลังบันทึก...' : 'บันทึก'}
+                </button>
+              </footer>
+            </form>
           </section>
         </div>
       )}

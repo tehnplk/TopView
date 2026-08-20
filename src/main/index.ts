@@ -3,9 +3,11 @@ import { join } from 'node:path'
 import {
   backupDatabase,
   deleteGisFeature,
+  getAppSettings,
   getDatabase,
   listGisGeometry,
   restoreDatabase,
+  saveAppSettings,
   saveGisGeometry,
   updateGisFeatureInfo
 } from './database'
@@ -197,6 +199,14 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('gistda-wms:get-config', () => {
     return getGistdaWmsConfig()
+  })
+  ipcMain.handle('settings:get', () => {
+    return getAppSettings()
+  })
+  ipcMain.handle('settings:save', async (_event, settings: unknown) => {
+    const result = await saveAppSettings(settings)
+    stopGistdaWmsProxy()
+    return result
   })
 
   void getDatabase().catch((error: unknown) => {

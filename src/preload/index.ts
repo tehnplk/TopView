@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type {
+  AppSettings,
   BackupDatabaseResult,
   DeleteGisFeatureResult,
   GisDataRecord,
@@ -8,6 +9,7 @@ import type {
   GistdaWmsConfig,
   RestoreDatabaseProgress,
   RestoreDatabaseResult,
+  SaveAppSettingsResult,
   SaveGisGeometryResult,
   UpdateGisFeatureInfoResult
 } from '../shared/gis'
@@ -41,7 +43,10 @@ const api = {
     ipcRenderer.on('database:restore-progress', listener)
     return () => ipcRenderer.removeListener('database:restore-progress', listener)
   },
-  getGistdaWmsConfig: (): Promise<GistdaWmsConfig> => ipcRenderer.invoke('gistda-wms:get-config')
+  getGistdaWmsConfig: (): Promise<GistdaWmsConfig> => ipcRenderer.invoke('gistda-wms:get-config'),
+  getAppSettings: (): Promise<AppSettings> => ipcRenderer.invoke('settings:get'),
+  saveAppSettings: (settings: AppSettings): Promise<SaveAppSettingsResult> =>
+    ipcRenderer.invoke('settings:save', settings)
 }
 
 contextBridge.exposeInMainWorld('api', api)

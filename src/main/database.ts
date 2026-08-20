@@ -4,6 +4,7 @@ import { app } from 'electron'
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import type {
+  AppSettings,
   BackupDatabaseResult,
   DeleteGisFeatureResult,
   GisDataRecord,
@@ -11,6 +12,7 @@ import type {
   GisGeometry,
   RestoreDatabaseProgress,
   RestoreDatabaseResult,
+  SaveAppSettingsResult,
   SaveGisGeometryResult,
   UpdateGisFeatureInfoResult
 } from '../shared/gis'
@@ -40,9 +42,20 @@ async function initializeDatabase(database: PGlite): Promise<void> {
     CREATE TABLE IF NOT EXISTS config (
       id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
-      "key" TEXT NOT NULL
+      value TEXT NOT NULL
     );
   `)
+
+  const configColumns = await database.query<{ columnName: string }>(`
+    SELECT column_name AS "columnName"
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'config';
+  `)
+  const configColumnNames = new Set(configColumns.rows.map((column) => column.columnName))
+
+  if (configColumnNames.has('key') && !configColumnNames.has('value')) {
+    await database.exec('ALTER TABLE config RENAME COLUMN "key" TO value;')
+  }
 }
 
 async function validateDatabase(database: PGlite): Promise<void> {
@@ -440,10 +453,46 @@ export async function restoreDatabase(
 
 export async function getConfigValue(name: string): Promise<string | null> {
   const database = await getDatabase()
-  const result = await database.query<{ key: string }>(
-    'SELECT "key" FROM config WHERE name = $1 LIMIT 1;',
+  const result = await database.query<{ value: string }>(
+    'SELECT value FROM config WHERE name = $1 LIMIT 1;',
     [name]
   )
 
-  return result.rows[0]?.key ?? null
+  return result.rows[0]?.value ?? null
+}
+
+export async function getAppSettings(): Promise<AppSettings> {
+  return {
+    gistdaApiKey: (await getConfigValue('GISTDA_API_KEY')) ?? ''
+  }
+}
+
+export async function saveAppSettings(value: unknown): Promise<SaveAppSettingsResult> {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    !('gistdaApiKey' in value) ||
+    typeof value.gistdaApiKey !== 'string'
+  ) {
+    throw new Error('Invalid application settings')
+  }
+
+  const gistdaApiKey = value.gistdaApiKey.trim()
+
+  if (gistdaApiKey.length > 2_048) {
+    throw new Error('GISTDA API key is too long')
+  }
+
+  const database = await getDatabase()
+  await database.query(
+    `
+      INSERT INTO config (name, value)
+      VALUES ($1, $2)
+      ON CONFLICT (name)
+      DO UPDATE SET value = EXCLUDED.value;
+    `,
+    ['GISTDA_API_KEY', gistdaApiKey]
+  )
+
+  return { saved: true }
 }

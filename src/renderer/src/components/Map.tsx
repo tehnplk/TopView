@@ -877,7 +877,7 @@ function Map(): React.JSX.Element {
           <Layers size={18} strokeWidth={2} aria-hidden="true" />
           {isWmsExpanded && (
             <>
-              <span>GISTDA WMS</span>
+              <span>ชั้นข้อมูลภายนอก</span>
               <ChevronUp className="map-wms-chevron" size={16} aria-hidden="true" />
             </>
           )}

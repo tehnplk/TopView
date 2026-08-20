@@ -67,3 +67,11 @@ export type GistdaWmsLayerConfig = {
 export type GistdaWmsConfig = {
   layers: GistdaWmsLayerConfig[]
 }
+
+export type AppSettings = {
+  gistdaApiKey: string
+}
+
+export type SaveAppSettingsResult = {
+  saved: true
+}

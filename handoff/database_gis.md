@@ -59,7 +59,7 @@ console.log(app.getPath('userData'))
 |---|---|---|
 | `id` | `INTEGER IDENTITY` | Primary key |
 | `name` | `TEXT UNIQUE` | ชื่อ config เช่น `GISTDA_API_KEY` |
-| `key` | `TEXT` | ค่าของ config |
+| `value` | `TEXT` | ค่าของ config |
 
 ## การจัดการข้อมูลใน main process
 
@@ -128,10 +128,10 @@ RETURNING id;
 const database = await getDatabase()
 
 await database.query(
-  `INSERT INTO config (name, "key")
+  `INSERT INTO config (name, value)
    VALUES ($1, $2)
    ON CONFLICT (name)
-   DO UPDATE SET "key" = EXCLUDED."key"`,
+   DO UPDATE SET value = EXCLUDED.value`,
   ['GISTDA_API_KEY', apiKey]
 )
 ```
