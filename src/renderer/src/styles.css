@@ -1240,10 +1240,9 @@ select {
 }
 
 .map-feature-info-header > div {
-  display: flex;
+  display: grid;
   min-width: 0;
-  align-items: center;
-  gap: 8px;
+  gap: 1px;
 }
 
 .map-feature-info-header h2 {
@@ -1256,6 +1255,7 @@ select {
 
 .map-feature-info-header p {
   display: flex;
+  min-width: 0;
   margin: 0;
   align-items: center;
   gap: 7px;
@@ -1274,6 +1274,7 @@ select {
 }
 
 .map-feature-layer-name {
+  min-width: 0;
   max-width: 120px;
   overflow: hidden;
   color: #e5e7eb;
