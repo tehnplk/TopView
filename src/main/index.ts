@@ -3,9 +3,11 @@ import { join } from 'node:path'
 import {
   backupDatabase,
   deleteGisFeature,
+  createGisLayer,
   getAppSettings,
   getDatabase,
   listGisGeometry,
+  listGisLayers,
   restoreDatabase,
   saveAppSettings,
   saveGisGeometry,
@@ -54,8 +56,8 @@ app.whenReady().then(() => {
   ipcMain.handle('app:get-version', () => {
     return app.getVersion()
   })
-  ipcMain.handle('gis-data:save', (_event, geometry: unknown, info: unknown) => {
-    return saveGisGeometry(geometry, info)
+  ipcMain.handle('gis-data:save', (_event, geometry: unknown, layerId: unknown, info: unknown) => {
+    return saveGisGeometry(geometry, layerId, info)
   })
   ipcMain.handle('gis-data:list', () => {
     return listGisGeometry()
@@ -65,6 +67,12 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('gis-data:delete', (_event, id: unknown) => {
     return deleteGisFeature(id)
+  })
+  ipcMain.handle('gis-layer:list', () => {
+    return listGisLayers()
+  })
+  ipcMain.handle('gis-layer:create', (_event, name: unknown, geometryType: unknown) => {
+    return createGisLayer(name, geometryType)
   })
   ipcMain.handle('database:backup', async (event) => {
     const parentWindow = BrowserWindow.fromWebContents(event.sender)

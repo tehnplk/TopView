@@ -7,9 +7,11 @@ import {
   Polygon as LeafletPolygon,
   Polyline,
   divIcon,
+  layerGroup,
   map,
   tileLayer,
   type Layer,
+  type LayerGroup,
   type LeafletMouseEvent,
   type Map as LeafletMap,
   type TileLayer
@@ -33,6 +35,7 @@ import type {
   GisDataRecord,
   GisFeatureInfo,
   GisGeometry,
+  GisLayer,
   GistdaWmsConfig,
   GistdaWmsLayerId
 } from '../../../shared/gis'
@@ -64,13 +67,25 @@ const MAP_TOOLS = [
   { id: 'point', label: 'จุด', Icon: MapPin },
   { id: 'clear', label: 'ล้าง', Icon: Trash2 }
 ] as const
+const EXTERNAL_GIS_LAYERS = [
+  { id: 'district-boundary', label: 'ขอบเขตอำเภอ' },
+  { id: 'subdistrict-boundary', label: 'ขอบเขตตำบล' }
+] as const
 
 type TileMode = (typeof TILE_MODES)[number]['id']
 type MapTool = (typeof MAP_TOOLS)[number]['id']
+type ExternalGisLayerId = (typeof EXTERNAL_GIS_LAYERS)[number]['id']
 type InfoFieldDraft = {
   id: number
   key: string
   value: string
+}
+
+type MapProps = {
+  activeGisLayerIds: number[]
+  layerCatalogRevision: number
+  onActivateGisLayer: (layerId: number) => void
+  onManageLayers: () => void
 }
 
 let nextInfoFieldId = 1
@@ -89,6 +104,30 @@ function formatInfoValue(value: unknown): string {
 
 function createInfoFields(info: GisFeatureInfo): InfoFieldDraft[] {
   return Object.entries(info).map(([key, value]) => createInfoField(key, formatInfoValue(value)))
+}
+
+function getGeometryLabel(geometry: GisGeometry): string {
+  if (geometry.type === 'Point') {
+    return 'จุด'
+  }
+
+  if (geometry.type === 'LineString') {
+    return 'เส้น'
+  }
+
+  return 'รูปหลายเหลี่ยม'
+}
+
+function getExternalGisLayerId(info: GisFeatureInfo): ExternalGisLayerId | null {
+  if ('ADM3_PCODE' in info) {
+    return 'subdistrict-boundary'
+  }
+
+  if ('ADM2_PCODE' in info && 'ADM1_PCODE' in info) {
+    return 'district-boundary'
+  }
+
+  return null
 }
 
 function parseInfoValue(value: string): unknown {
@@ -185,11 +224,23 @@ function updateRadiusTooltip(circle: LeafletCircle): void {
     .openTooltip()
 }
 
-function Map(): React.JSX.Element {
+function Map({
+  activeGisLayerIds,
+  layerCatalogRevision,
+  onActivateGisLayer,
+  onManageLayers
+}: MapProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<LeafletMap | null>(null)
   const layersRef = useRef<Record<TileMode, TileLayer> | null>(null)
   const wmsLayersRef = useRef<Partial<Record<GistdaWmsLayerId, TileLayer>>>({})
+  const externalGisLayersRef = useRef<Partial<Record<ExternalGisLayerId, LayerGroup>>>({})
+  const namedGisLayersRef = useRef<globalThis.Map<number, LayerGroup>>(new globalThis.Map())
+  const namedGisFeatureLayersRef = useRef<globalThis.Map<number, number>>(new globalThis.Map())
+  const activeGisLayerIdsRef = useRef(activeGisLayerIds)
+  const externalGisFeatureLayersRef = useRef<globalThis.Map<number, ExternalGisLayerId>>(
+    new globalThis.Map()
+  )
   const activeToolRef = useRef<MapTool | null>(null)
   const pendingLayerRef = useRef<Layer | null>(null)
   const activeFeatureLayerRef = useRef<Layer | null>(null)
@@ -200,8 +251,19 @@ function Map(): React.JSX.Element {
   const [activeTool, setActiveTool] = useState<MapTool | null>(null)
   const [wmsConfig, setWmsConfig] = useState<GistdaWmsConfig | null>(null)
   const [activeWmsLayers, setActiveWmsLayers] = useState<GistdaWmsLayerId[]>([])
+  const [availableExternalGisLayers, setAvailableExternalGisLayers] = useState<
+    ExternalGisLayerId[]
+  >([])
+  const [activeExternalGisLayers, setActiveExternalGisLayers] = useState<
+    ExternalGisLayerId[]
+  >([])
   const [isWmsExpanded, setIsWmsExpanded] = useState(false)
+  const [gisLayers, setGisLayers] = useState<GisLayer[]>([])
+  const [isLoadingGisLayers, setIsLoadingGisLayers] = useState(true)
+  const [gisLayerError, setGisLayerError] = useState<string | null>(null)
   const [pendingGeometry, setPendingGeometry] = useState<GisGeometry | null>(null)
+  const [pendingGisLayerId, setPendingGisLayerId] = useState('')
+  const [pendingInfoFields, setPendingInfoFields] = useState<InfoFieldDraft[]>([])
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [selectedFeature, setSelectedFeature] = useState<GisDataRecord | null>(null)
@@ -213,6 +275,71 @@ function Map(): React.JSX.Element {
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false)
   const [isDeletingFeature, setIsDeletingFeature] = useState(false)
   const [deleteFeatureError, setDeleteFeatureError] = useState<string | null>(null)
+
+  function preparePendingFeature(layer: Layer, geometry: GisGeometry): void {
+    pendingLayerRef.current = layer
+    setPendingGeometry(geometry)
+    setPendingGisLayerId('')
+    setPendingInfoFields([createInfoField()])
+    setSaveError(null)
+  }
+
+  useEffect(() => {
+    let isDisposed = false
+
+    const loadGisLayers = async (): Promise<void> => {
+      if (!window.api) {
+        setIsLoadingGisLayers(false)
+        setGisLayerError('ไม่สามารถเชื่อมต่อฐานข้อมูลได้')
+        return
+      }
+
+      setIsLoadingGisLayers(true)
+      setGisLayerError(null)
+
+      try {
+        const layers = await window.api.listGisLayers()
+
+        if (!isDisposed) {
+          setGisLayers(layers)
+        }
+      } catch (error) {
+        console.error('Unable to load GIS layers', error)
+        if (!isDisposed) {
+          setGisLayerError('ไม่สามารถโหลดชื่อชั้นข้อมูลได้')
+        }
+      } finally {
+        if (!isDisposed) {
+          setIsLoadingGisLayers(false)
+        }
+      }
+    }
+
+    void loadGisLayers()
+    return () => {
+      isDisposed = true
+    }
+  }, [layerCatalogRevision])
+
+  useEffect(() => {
+    activeGisLayerIdsRef.current = activeGisLayerIds
+    const leafletMap = mapRef.current
+
+    if (!leafletMap) {
+      return
+    }
+
+    namedGisLayersRef.current.forEach((layer, layerId) => {
+      const shouldBeActive = activeGisLayerIds.includes(layerId)
+      const isActive = leafletMap.hasLayer(layer)
+
+      if (shouldBeActive && !isActive) {
+        layer.addTo(leafletMap)
+      } else if (!shouldBeActive && isActive) {
+        leafletMap.removeLayer(layer)
+      }
+    })
+  }, [activeGisLayerIds])
 
   function openFeatureInfo(featureId: number): void {
     const record = savedFeatureRecordsRef.current.get(featureId)
@@ -415,27 +542,37 @@ function Map(): React.JSX.Element {
         updateRadiusTooltip(event.layer)
       }
 
+      if (activeToolRef.current === 'line' && event.shape === 'Line' && event.layer instanceof Polyline) {
+        const points = getLinePoints(event.layer)
+
+        if (points.length >= 2) {
+          preparePendingFeature(event.layer, {
+            type: 'LineString',
+            coordinates: points.map((point) => [point.lng, point.lat])
+          })
+        }
+      }
+
       if (activeToolRef.current === 'point' && event.shape === 'Marker' && event.layer instanceof LeafletMarker) {
         event.layer.setIcon(RED_PIN_ICON)
 
         const point = event.layer.getLatLng()
-        pendingLayerRef.current = event.layer
-        setPendingGeometry({ type: 'Point', coordinates: [point.lng, point.lat] })
-        setSaveError(null)
+        preparePendingFeature(event.layer, {
+          type: 'Point',
+          coordinates: [point.lng, point.lat]
+        })
       }
 
       if (activeToolRef.current === 'polygon' && event.shape === 'Polygon' && event.layer instanceof LeafletPolygon) {
         const geometry = event.layer.toGeoJSON().geometry
 
         if (geometry.type === 'Polygon') {
-          pendingLayerRef.current = event.layer
-          setPendingGeometry({
+          preparePendingFeature(event.layer, {
             type: 'Polygon',
             coordinates: geometry.coordinates.map((ring) => {
               return ring.map((position) => [position[0], position[1]])
             })
           })
-          setSaveError(null)
         }
       }
 
@@ -459,31 +596,84 @@ function Map(): React.JSX.Element {
           return
         }
 
+        const externalFeatureLayers: Record<ExternalGisLayerId, Layer[]> = {
+          'district-boundary': [],
+          'subdistrict-boundary': []
+        }
+        const namedFeatureLayers = new globalThis.Map<number, Layer[]>()
+
         records.forEach((record) => {
           const { spatial } = record
+          const externalLayerId = getExternalGisLayerId(record.info)
+          let layer: Layer
 
           if (spatial.type === 'Point') {
             const [longitude, latitude] = spatial.coordinates
-            const layer = new LeafletMarker([latitude, longitude], {
+            layer = new LeafletMarker([latitude, longitude], {
               icon: RED_PIN_ICON,
               title: 'คลิกเพื่อดู Feature Info'
-            }).addTo(leafletMap)
-            registerSavedFeatureLayer(layer, record)
+            })
+          } else if (spatial.type === 'LineString') {
+            const latLngs = spatial.coordinates.map(([longitude, latitude]) => {
+              return [latitude, longitude] as [number, number]
+            })
+            layer = new Polyline(latLngs, {
+              color: FEATURE_COLOR,
+              weight: 3
+            })
+          } else {
+            const latLngs = spatial.coordinates.map((ring) => {
+              return ring.map(([longitude, latitude]) => [latitude, longitude] as [number, number])
+            })
+
+            layer = new LeafletPolygon(latLngs, {
+              color: FEATURE_COLOR,
+              fillColor: FEATURE_COLOR,
+              fillOpacity: 0.18,
+              weight: 2
+            })
+          }
+
+          registerSavedFeatureLayer(layer, record)
+
+          if (record.layerId !== null) {
+            const featureLayers = namedFeatureLayers.get(record.layerId) ?? []
+            featureLayers.push(layer)
+            namedFeatureLayers.set(record.layerId, featureLayers)
+            namedGisFeatureLayersRef.current.set(record.id, record.layerId)
             return
           }
 
-          const latLngs = spatial.coordinates.map((ring) => {
-            return ring.map(([longitude, latitude]) => [latitude, longitude] as [number, number])
-          })
+          if (externalLayerId) {
+            externalFeatureLayers[externalLayerId].push(layer)
+            externalGisFeatureLayersRef.current.set(record.id, externalLayerId)
+            return
+          }
 
-          const layer = new LeafletPolygon(latLngs, {
-            color: FEATURE_COLOR,
-            fillColor: FEATURE_COLOR,
-            fillOpacity: 0.18,
-            weight: 2
-          }).addTo(leafletMap)
-          registerSavedFeatureLayer(layer, record)
+          layer.addTo(leafletMap)
         })
+
+        namedFeatureLayers.forEach((featureLayers, layerId) => {
+          const namedLayer = layerGroup(featureLayers)
+          namedGisLayersRef.current.set(layerId, namedLayer)
+
+          if (activeGisLayerIdsRef.current.includes(layerId)) {
+            namedLayer.addTo(leafletMap)
+          }
+        })
+
+        const availableLayers = EXTERNAL_GIS_LAYERS.flatMap(({ id }) => {
+          const featureLayers = externalFeatureLayers[id]
+
+          if (featureLayers.length === 0) {
+            return []
+          }
+
+          externalGisLayersRef.current[id] = layerGroup(featureLayers)
+          return [id]
+        })
+
+        setAvailableExternalGisLayers(availableLayers)
       } catch (error) {
         console.error('Unable to load saved GIS geometry', error)
       }
@@ -543,6 +733,10 @@ function Map(): React.JSX.Element {
       mapRef.current = null
       layersRef.current = null
       wmsLayersRef.current = {}
+      externalGisLayersRef.current = {}
+      namedGisLayersRef.current.clear()
+      namedGisFeatureLayersRef.current.clear()
+      externalGisFeatureLayersRef.current.clear()
       activeToolRef.current = null
       pendingLayerRef.current = null
       activeFeatureLayerRef.current = null
@@ -563,6 +757,24 @@ function Map(): React.JSX.Element {
 
     pendingLayerRef.current = null
     setPendingGeometry(null)
+    setPendingGisLayerId('')
+    setPendingInfoFields([])
+    setSaveError(null)
+  }
+
+  function updatePendingInfoField(
+    fieldId: number,
+    property: 'key' | 'value',
+    value: string
+  ): void {
+    setPendingInfoFields((current) =>
+      current.map((field) => (field.id === fieldId ? { ...field, [property]: value } : field))
+    )
+    setSaveError(null)
+  }
+
+  function removePendingInfoField(fieldId: number): void {
+    setPendingInfoFields((current) => current.filter((field) => field.id !== fieldId))
     setSaveError(null)
   }
 
@@ -576,23 +788,73 @@ function Map(): React.JSX.Element {
       return
     }
 
+    const selectedLayerId = Number(pendingGisLayerId)
+    const selectedLayer = gisLayers.find(
+      (layer) => layer.id === selectedLayerId && layer.geometryType === pendingGeometry.type
+    )
+
+    if (!selectedLayer) {
+      setSaveError(`กรุณาเลือกชื่อชั้นข้อมูลสำหรับ ${getGeometryLabel(pendingGeometry)}`)
+      return
+    }
+
+    const normalizedFields = pendingInfoFields
+      .map((field) => ({ key: field.key.trim(), value: field.value }))
+      .filter((field) => field.key || field.value.trim())
+
+    if (normalizedFields.some((field) => !field.key)) {
+      setSaveError('กรุณาระบุชื่อ Attribute ให้ครบทุกรายการ')
+      return
+    }
+
+    const keys = normalizedFields.map((field) => field.key)
+
+    if (new Set(keys).size !== keys.length) {
+      setSaveError('ชื่อ Attribute ห้ามซ้ำกัน')
+      return
+    }
+
+    const info = Object.fromEntries(
+      normalizedFields.map((field) => [field.key, parseInfoValue(field.value)])
+    )
+
     setIsSaving(true)
     setSaveError(null)
 
     try {
-      const result = await window.api.saveGisGeometry(pendingGeometry)
+      const result = await window.api.saveGisGeometry(pendingGeometry, selectedLayer.id, info)
       const savedLayer = pendingLayerRef.current
 
       if (savedLayer) {
         registerSavedFeatureLayer(savedLayer, {
           id: result.id,
           spatial: pendingGeometry,
-          info: {}
+          info,
+          layerId: selectedLayer.id,
+          layerName: selectedLayer.name
         })
+
+        let namedLayer = namedGisLayersRef.current.get(selectedLayer.id)
+        if (!namedLayer) {
+          namedLayer = layerGroup()
+          namedGisLayersRef.current.set(selectedLayer.id, namedLayer)
+        }
+        namedLayer.addLayer(savedLayer)
+        namedGisFeatureLayersRef.current.set(result.id, selectedLayer.id)
+        if (
+          activeGisLayerIdsRef.current.includes(selectedLayer.id) &&
+          mapRef.current &&
+          !mapRef.current.hasLayer(namedLayer)
+        ) {
+          namedLayer.addTo(mapRef.current)
+        }
+        onActivateGisLayer(selectedLayer.id)
       }
 
       pendingLayerRef.current = null
       setPendingGeometry(null)
+      setPendingGisLayerId('')
+      setPendingInfoFields([])
     } catch (error) {
       console.error('Unable to save GIS geometry', error)
       setSaveError('บันทึกข้อมูลไม่สำเร็จ กรุณาลองอีกครั้ง')
@@ -705,6 +967,18 @@ function Map(): React.JSX.Element {
       await window.api.deleteGisFeature(featureId)
       savedFeatureRecordsRef.current.delete(featureId)
 
+      const externalLayerId = externalGisFeatureLayersRef.current.get(featureId)
+      if (externalLayerId && featureLayer) {
+        externalGisLayersRef.current[externalLayerId]?.removeLayer(featureLayer)
+        externalGisFeatureLayersRef.current.delete(featureId)
+      }
+
+      const namedLayerId = namedGisFeatureLayersRef.current.get(featureId)
+      if (namedLayerId && featureLayer) {
+        namedGisLayersRef.current.get(namedLayerId)?.removeLayer(featureLayer)
+        namedGisFeatureLayersRef.current.delete(featureId)
+      }
+
       if (featureLayer && mapRef.current?.hasLayer(featureLayer)) {
         mapRef.current.removeLayer(featureLayer)
       }
@@ -721,6 +995,24 @@ function Map(): React.JSX.Element {
     } finally {
       setIsDeletingFeature(false)
     }
+  }
+
+  function toggleExternalGisLayer(layerId: ExternalGisLayerId): void {
+    const leafletMap = mapRef.current
+    const externalLayer = externalGisLayersRef.current[layerId]
+
+    if (!leafletMap || !externalLayer) {
+      return
+    }
+
+    if (leafletMap.hasLayer(externalLayer)) {
+      leafletMap.removeLayer(externalLayer)
+      setActiveExternalGisLayers((current) => current.filter((id) => id !== layerId))
+      return
+    }
+
+    externalLayer.addTo(leafletMap)
+    setActiveExternalGisLayers((current) => [...current, layerId])
   }
 
   function toggleWmsLayer(layerId: GistdaWmsLayerId): void {
@@ -846,6 +1138,10 @@ function Map(): React.JSX.Element {
     })
   }
 
+  const compatiblePendingLayers = pendingGeometry
+    ? gisLayers.filter((layer) => layer.geometryType === pendingGeometry.type)
+    : []
+
   return (
     <div className="map-shell">
       <div ref={containerRef} className="map" aria-label="Interactive map of Phitsanulok" />
@@ -877,33 +1173,58 @@ function Map(): React.JSX.Element {
           <Layers size={18} strokeWidth={2} aria-hidden="true" />
           {isWmsExpanded && (
             <>
-              <span>ชั้นข้อมูลภายนอก</span>
+              <span>ชั้นข้อมูลกายภาพ</span>
               <ChevronUp className="map-wms-chevron" size={16} aria-hidden="true" />
             </>
           )}
         </button>
 
         {isWmsExpanded && (
-          <div id="gistda-wms-options" className="map-wms-options" role="group" aria-label="ชั้นข้อมูล WMS ของ GISTDA">
-            {wmsConfig ? (
-              wmsConfig.layers.map((layer) => (
-                <label key={layer.id} className="map-wms-option" title={layer.error ?? undefined}>
-                  <input
-                    type="checkbox"
-                    checked={activeWmsLayers.includes(layer.id)}
-                    disabled={Boolean(layer.error) || !layer.url || !layer.layers}
-                    onChange={() => toggleWmsLayer(layer.id)}
-                  />
-                  <span>{layer.label}</span>
-                </label>
-              ))
-            ) : (
-              <div className="map-wms-status">กำลังโหลด...</div>
+          <div id="gistda-wms-options" className="map-wms-options" role="group" aria-label="ชั้นข้อมูลกายภาพ">
+            {availableExternalGisLayers.length > 0 && (
+              <div className="map-wms-section" role="group" aria-labelledby="administrative-boundary-layers">
+                <div id="administrative-boundary-layers" className="map-wms-section-title">
+                  ขอบเขตปกครอง
+                </div>
+                {EXTERNAL_GIS_LAYERS.filter((layer) =>
+                  availableExternalGisLayers.includes(layer.id)
+                ).map((layer) => (
+                  <label key={layer.id} className="map-wms-option">
+                    <input
+                      type="checkbox"
+                      checked={activeExternalGisLayers.includes(layer.id)}
+                      onChange={() => toggleExternalGisLayer(layer.id)}
+                    />
+                    <span>{layer.label}</span>
+                  </label>
+                ))}
+              </div>
             )}
 
-            {wmsConfig?.layers.every((layer) => layer.error) && (
-              <div className="map-wms-status error">{wmsConfig.layers[0].error}</div>
-            )}
+            <div className="map-wms-section" role="group" aria-labelledby="disaster-layers">
+              <div id="disaster-layers" className="map-wms-section-title">
+                ภัยพิบัติ
+              </div>
+              {wmsConfig ? (
+                wmsConfig.layers.map((layer) => (
+                  <label key={layer.id} className="map-wms-option" title={layer.error ?? undefined}>
+                    <input
+                      type="checkbox"
+                      checked={activeWmsLayers.includes(layer.id)}
+                      disabled={Boolean(layer.error) || !layer.url || !layer.layers}
+                      onChange={() => toggleWmsLayer(layer.id)}
+                    />
+                    <span>{layer.label}</span>
+                  </label>
+                ))
+              ) : (
+                <div className="map-wms-status">กำลังโหลด...</div>
+              )}
+
+              {wmsConfig?.layers.every((layer) => layer.error) && (
+                <div className="map-wms-status error">{wmsConfig.layers[0].error}</div>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -938,8 +1259,11 @@ function Map(): React.JSX.Element {
               <p>
                 Feature #{selectedFeature.id}
                 <span className="map-feature-type">
-                  {selectedFeature.spatial.type === 'Point' ? 'จุด' : 'พื้นที่'}
+                  {getGeometryLabel(selectedFeature.spatial)}
                 </span>
+                {selectedFeature.layerName && (
+                  <span className="map-feature-layer-name">{selectedFeature.layerName}</span>
+                )}
               </p>
             </div>
           </header>
@@ -1118,27 +1442,124 @@ function Map(): React.JSX.Element {
       {pendingGeometry && (
         <div className="map-save-overlay">
           <section
-            className="map-save-dialog"
+            className="map-save-dialog map-feature-save-dialog"
             role="dialog"
             aria-modal="true"
             aria-labelledby="map-save-title"
             aria-describedby="map-save-description"
           >
-            <h2 id="map-save-title">บันทึกข้อมูลหรือไม่?</h2>
-            <p id="map-save-description">
-              ต้องการบันทึก{pendingGeometry.type === 'Point' ? 'จุด' : 'รูปหลายเหลี่ยม'}นี้ลงฐานข้อมูลหรือไม่
-            </p>
+            <form onSubmit={(event) => {
+              event.preventDefault()
+              void savePendingGeometry()
+            }}>
+              <h2 id="map-save-title">บันทึก Feature</h2>
+              <p id="map-save-description">
+                {getGeometryLabel(pendingGeometry)}จะถูกบันทึกลงฐานข้อมูลหลังเลือกชื่อชั้นข้อมูลและกรอก Attribute
+              </p>
 
-            {saveError && <p className="map-save-error" role="alert">{saveError}</p>}
+              <div className="map-feature-save-body">
+                <label className="map-feature-layer-select" htmlFor="pending-gis-layer">
+                  <span>ชื่อชั้นข้อมูล</span>
+                  <select
+                    id="pending-gis-layer"
+                    autoFocus
+                    value={pendingGisLayerId}
+                    disabled={isSaving || isLoadingGisLayers}
+                    onChange={(event) => {
+                      setPendingGisLayerId(event.target.value)
+                      setSaveError(null)
+                    }}
+                  >
+                    <option value="">เลือกชื่อชั้นข้อมูล</option>
+                    {compatiblePendingLayers.map((layer) => (
+                      <option key={layer.id} value={layer.id}>{layer.name}</option>
+                    ))}
+                  </select>
+                </label>
 
-            <div className="map-save-actions">
-              <button type="button" className="map-save-button secondary" disabled={isSaving} onClick={discardPendingGeometry}>
-                ไม่บันทึก
-              </button>
-              <button type="button" className="map-save-button primary" disabled={isSaving} onClick={() => void savePendingGeometry()}>
-                {isSaving ? 'กำลังบันทึก...' : 'บันทึก'}
-              </button>
-            </div>
+                {isLoadingGisLayers && <p className="map-feature-save-status">กำลังโหลดชื่อชั้นข้อมูล...</p>}
+                {gisLayerError && <p className="map-save-error" role="alert">{gisLayerError}</p>}
+                {!isLoadingGisLayers && compatiblePendingLayers.length === 0 && (
+                  <>
+                    <p className="map-feature-save-status">
+                      ยังไม่มีชื่อชั้นข้อมูลสำหรับ {getGeometryLabel(pendingGeometry)}
+                    </p>
+                    <button type="button" className="map-manage-layers-button" onClick={onManageLayers}>
+                      เพิ่มชื่อชั้นข้อมูล
+                    </button>
+                  </>
+                )}
+
+                <div className="map-pending-attribute-heading">
+                  <span>Attribute</span>
+                </div>
+
+                <div className="map-feature-info-fields">
+                  {pendingInfoFields.map((field, index) => (
+                    <div key={field.id} className="map-feature-info-field">
+                      <div className="map-feature-info-field-heading">
+                        <span>Attribute {index + 1}</span>
+                        <button
+                          type="button"
+                          aria-label={`ลบ Attribute ${index + 1}`}
+                          disabled={isSaving}
+                          onClick={() => removePendingInfoField(field.id)}
+                        >
+                          <Trash2 size={15} aria-hidden="true" />
+                        </button>
+                      </div>
+                      <label>
+                        <span>ชื่อ Attribute</span>
+                        <input
+                          type="text"
+                          value={field.key}
+                          maxLength={80}
+                          disabled={isSaving}
+                          placeholder="เช่น name"
+                          onChange={(event) => updatePendingInfoField(field.id, 'key', event.target.value)}
+                        />
+                      </label>
+                      <label>
+                        <span>ค่า</span>
+                        <textarea
+                          rows={2}
+                          value={field.value}
+                          maxLength={4000}
+                          disabled={isSaving}
+                          placeholder="กรอกข้อมูล"
+                          onChange={(event) => updatePendingInfoField(field.id, 'value', event.target.value)}
+                        />
+                      </label>
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  className="map-feature-info-add"
+                  disabled={isSaving}
+                  onClick={() => setPendingInfoFields((current) => [...current, createInfoField()])}
+                >
+                  <Plus size={16} aria-hidden="true" />
+                  เพิ่ม Attribute
+                </button>
+
+                {saveError && <p className="map-save-error" role="alert">{saveError}</p>}
+              </div>
+
+              <div className="map-save-actions">
+                <button type="button" className="map-save-button secondary" disabled={isSaving} onClick={discardPendingGeometry}>
+                  ไม่บันทึก
+                </button>
+                <button
+                  type="submit"
+                  className="map-save-button primary"
+                  disabled={isSaving || isLoadingGisLayers}
+                >
+                  {isSaving ? 'กำลังบันทึก...' : 'บันทึก'}
+                </button>
+              </div>
+            </form>
           </section>
         </div>
       )}

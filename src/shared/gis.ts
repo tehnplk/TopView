@@ -3,17 +3,29 @@ export type GisPointGeometry = {
   coordinates: [number, number]
 }
 
+export type GisLineStringGeometry = {
+  type: 'LineString'
+  coordinates: [number, number][]
+}
+
 export type GisPolygonGeometry = {
   type: 'Polygon'
   coordinates: [number, number][][]
 }
 
-export type GisGeometry = GisPointGeometry | GisPolygonGeometry
+export type GisGeometry = GisPointGeometry | GisLineStringGeometry | GisPolygonGeometry
+export type GisFeatureType = GisGeometry['type']
 
 export type GisFeatureInfo = Record<string, unknown>
 
 export type SaveGisGeometryResult = {
   id: number
+}
+
+export type GisLayer = {
+  id: number
+  name: string
+  geometryType: GisFeatureType
 }
 
 export type UpdateGisFeatureInfoResult = {
@@ -47,6 +59,8 @@ export type GisDataRecord = {
   id: number
   spatial: GisGeometry
   info: GisFeatureInfo
+  layerId: number | null
+  layerName: string | null
 }
 
 export type GistdaWmsLayerId =

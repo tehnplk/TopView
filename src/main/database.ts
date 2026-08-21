@@ -8,8 +8,10 @@ import type {
   BackupDatabaseResult,
   DeleteGisFeatureResult,
   GisDataRecord,
+  GisFeatureType,
   GisFeatureInfo,
   GisGeometry,
+  GisLayer,
   RestoreDatabaseProgress,
   RestoreDatabaseResult,
   SaveAppSettingsResult,
@@ -29,21 +31,58 @@ async function initializeDatabase(database: PGlite): Promise<void> {
   await database.exec(`
     CREATE EXTENSION IF NOT EXISTS postgis;
 
+    CREATE TABLE IF NOT EXISTS gis_layers (
+      id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      geometry_type TEXT NOT NULL CHECK (geometry_type IN ('Point', 'LineString', 'Polygon')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    ALTER TABLE gis_layers
+    ADD COLUMN IF NOT EXISTS geometry_type TEXT;
+
     CREATE TABLE IF NOT EXISTS gis_data (
       id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
       spatial geometry(Geometry, 4326) NOT NULL,
       info JSONB NOT NULL DEFAULT '{}'::jsonb,
+      layer_id INTEGER REFERENCES gis_layers(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     ALTER TABLE gis_data
     ADD COLUMN IF NOT EXISTS info JSONB NOT NULL DEFAULT '{}'::jsonb;
 
+    ALTER TABLE gis_data
+    ADD COLUMN IF NOT EXISTS layer_id INTEGER REFERENCES gis_layers(id) ON DELETE SET NULL;
+
     CREATE TABLE IF NOT EXISTS config (
       id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
       value TEXT NOT NULL
     );
+  `)
+
+  await database.exec(`
+    UPDATE gis_layers
+    SET geometry_type = COALESCE(
+      (
+        SELECT CASE GeometryType(gis_data.spatial)
+          WHEN 'POINT' THEN 'Point'
+          WHEN 'LINESTRING' THEN 'LineString'
+          WHEN 'POLYGON' THEN 'Polygon'
+          ELSE NULL
+        END
+        FROM gis_data
+        WHERE gis_data.layer_id = gis_layers.id
+        ORDER BY gis_data.id
+        LIMIT 1
+      ),
+      'Point'
+    )
+    WHERE geometry_type IS NULL;
+
+    ALTER TABLE gis_layers
+    ALTER COLUMN geometry_type SET NOT NULL;
   `)
 
   const configColumns = await database.query<{ columnName: string }>(`
@@ -60,6 +99,7 @@ async function initializeDatabase(database: PGlite): Promise<void> {
 
 async function validateDatabase(database: PGlite): Promise<void> {
   await database.query('SELECT COUNT(*) FROM gis_data;')
+  await database.query('SELECT COUNT(*) FROM gis_layers;')
   await database.query('SELECT COUNT(*) FROM config;')
   await database.query('SELECT PostGIS_Version();')
 }
@@ -120,6 +160,14 @@ function isGisGeometry(value: unknown): value is GisGeometry {
     return isCoordinate(value.coordinates)
   }
 
+  if (value.type === 'LineString') {
+    return (
+      Array.isArray(value.coordinates) &&
+      value.coordinates.length >= 2 &&
+      value.coordinates.every(isCoordinate)
+    )
+  }
+
   if (value.type !== 'Polygon' || !Array.isArray(value.coordinates) || value.coordinates.length === 0) {
     return false
   }
@@ -132,6 +180,10 @@ function isGisGeometry(value: unknown): value is GisGeometry {
       coordinatesMatch(ring[0], ring[ring.length - 1])
     )
   })
+}
+
+function isGisFeatureType(value: unknown): value is GisFeatureType {
+  return value === 'Point' || value === 'LineString' || value === 'Polygon'
 }
 
 function isGisFeatureInfo(value: unknown): value is GisFeatureInfo {
@@ -203,26 +255,33 @@ export async function getDatabase(): Promise<PGlite> {
 
 export async function saveGisGeometry(
   value: unknown,
+  layerIdValue: unknown,
   infoValue: unknown = {}
 ): Promise<SaveGisGeometryResult> {
   if (!isGisGeometry(value)) {
     throw new Error('Invalid GIS geometry')
   }
 
+  if (!Number.isInteger(layerIdValue) || (layerIdValue as number) <= 0) {
+    throw new Error('Invalid GIS layer id')
+  }
+
   const info = serializeGisFeatureInfo(infoValue)
   const database = await getDatabase()
   const result = await database.query<{ id: number }>(
     `
-      INSERT INTO gis_data (spatial, info)
-      VALUES (ST_SetSRID(ST_GeomFromGeoJSON($1), 4326), $2::jsonb)
+      INSERT INTO gis_data (spatial, info, layer_id)
+      SELECT ST_SetSRID(ST_GeomFromGeoJSON($1), 4326), $2::jsonb, id
+      FROM gis_layers
+      WHERE id = $3 AND geometry_type = $4
       RETURNING id;
     `,
-    [JSON.stringify(value), info]
+    [JSON.stringify(value), info, layerIdValue, value.type]
   )
   const savedRow = result.rows[0]
 
   if (!savedRow) {
-    throw new Error('GIS geometry was not saved')
+    throw new Error('GIS geometry type does not match the selected layer')
   }
 
   return { id: savedRow.id }
@@ -230,23 +289,91 @@ export async function saveGisGeometry(
 
 export async function listGisGeometry(): Promise<GisDataRecord[]> {
   const database = await getDatabase()
-  const result = await database.query<{ id: number; spatial: string; info: unknown }>(`
-    SELECT id, ST_AsGeoJSON(spatial) AS spatial, info
+  const result = await database.query<{
+    id: number
+    spatial: string
+    info: unknown
+    layerId: number | null
+    layerName: string | null
+  }>(`
+    SELECT
+      gis_data.id,
+      ST_AsGeoJSON(gis_data.spatial) AS spatial,
+      gis_data.info,
+      gis_data.layer_id AS "layerId",
+      gis_layers.name AS "layerName"
     FROM gis_data
-    WHERE spatial IS NOT NULL
-    ORDER BY id;
+    LEFT JOIN gis_layers ON gis_layers.id = gis_data.layer_id
+    WHERE gis_data.spatial IS NOT NULL
+    ORDER BY gis_data.id;
   `)
 
   return result.rows.flatMap((row) => {
     try {
       const spatial: unknown = JSON.parse(row.spatial)
       return isGisGeometry(spatial)
-        ? [{ id: row.id, spatial, info: parseGisFeatureInfo(row.info) }]
+        ? [{
+            id: row.id,
+            spatial,
+            info: parseGisFeatureInfo(row.info),
+            layerId: row.layerId,
+            layerName: row.layerName
+          }]
         : []
     } catch {
       return []
     }
   })
+}
+
+export async function listGisLayers(): Promise<GisLayer[]> {
+  const database = await getDatabase()
+  const result = await database.query<GisLayer>(`
+    SELECT id, name, geometry_type AS "geometryType"
+    FROM gis_layers
+    ORDER BY LOWER(name), id;
+  `)
+
+  return result.rows
+}
+
+export async function createGisLayer(
+  nameValue: unknown,
+  geometryTypeValue: unknown
+): Promise<GisLayer> {
+  if (typeof nameValue !== 'string') {
+    throw new Error('Invalid GIS layer name')
+  }
+
+  const name = nameValue.trim()
+
+  if (!name || name.length > 100) {
+    throw new Error('GIS layer name must contain 1 to 100 characters')
+  }
+
+  if (!isGisFeatureType(geometryTypeValue)) {
+    throw new Error('Invalid GIS layer feature type')
+  }
+
+  const database = await getDatabase()
+  const result = await database.query<GisLayer>(
+    `
+      INSERT INTO gis_layers (name, geometry_type)
+      SELECT $1, $2
+      WHERE NOT EXISTS (
+        SELECT 1 FROM gis_layers WHERE LOWER(name) = LOWER($1)
+      )
+      RETURNING id, name, geometry_type AS "geometryType";
+    `,
+    [name, geometryTypeValue]
+  )
+  const layer = result.rows[0]
+
+  if (!layer) {
+    throw new Error('GIS layer name already exists')
+  }
+
+  return layer
 }
 
 export async function updateGisFeatureInfo(

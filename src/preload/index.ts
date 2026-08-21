@@ -5,7 +5,9 @@ import type {
   DeleteGisFeatureResult,
   GisDataRecord,
   GisFeatureInfo,
+  GisFeatureType,
   GisGeometry,
+  GisLayer,
   GistdaWmsConfig,
   RestoreDatabaseProgress,
   RestoreDatabaseResult,
@@ -18,9 +20,13 @@ const api = {
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:get-version'),
   saveGisGeometry: (
     geometry: GisGeometry,
+    layerId: number,
     info: GisFeatureInfo = {}
-  ): Promise<SaveGisGeometryResult> => ipcRenderer.invoke('gis-data:save', geometry, info),
+  ): Promise<SaveGisGeometryResult> => ipcRenderer.invoke('gis-data:save', geometry, layerId, info),
   listGisGeometry: (): Promise<GisDataRecord[]> => ipcRenderer.invoke('gis-data:list'),
+  listGisLayers: (): Promise<GisLayer[]> => ipcRenderer.invoke('gis-layer:list'),
+  createGisLayer: (name: string, geometryType: GisFeatureType): Promise<GisLayer> =>
+    ipcRenderer.invoke('gis-layer:create', name, geometryType),
   updateGisFeatureInfo: (
     id: number,
     info: GisFeatureInfo
